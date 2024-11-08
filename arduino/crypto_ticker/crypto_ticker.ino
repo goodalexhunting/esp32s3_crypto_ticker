@@ -1,53 +1,43 @@
 /**
- * Coincap API ticker
+ * Crypto Ticker
  *
- *  Created on: 24.05.2015 - https://github.com/osbock
+ *  Created on: 24.05.2015 - https://github.com/osbock/AssetTicker
  *  Updated on: 08.11.2024 - https://github.com/goodalexhunting
  *
  */
-
-#include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiManager.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <SPI.h>
 #include "config.h"
-#include "TFT_eSPI.h"/* Please use the TFT library provided in the library. */
+#include "TFT_eSPI.h"
 
-TFT_eSPI tft = TFT_eSPI();
+#define UPDATE_INTERVAL 1000 * 60 * 1
 
 extern void update_crypto(String coins);
-extern void update_stock(String symbol);
+unsigned long last_update = 0L;
 
-unsigned int iteration=0;
-unsigned long last_update =0L;
+TFT_eSPI tft = TFT_eSPI();
 
 void setup() {
   Serial.begin(115200);
   pinMode(PIN_POWER_ON, OUTPUT);
   digitalWrite(PIN_POWER_ON, HIGH);
-  pinMode(14,INPUT_PULLUP);
-  WiFi.begin("ssid","passwd");
+  pinMode(14, INPUT_PULLUP);
+  WiFi.begin("SKYSXQIX", "8RfGzsJxcrWd");
 
   tft.begin();
   tft.setRotation(3);
-  tft.fillScreen(CUSTOM_DARK);
+  tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE);
   tft.setTextWrap(true);
   tft.setCursor(0, 170);
-  tft.setTextSize(2);
+  tft.setTextSize(3);
   update_crypto("bitcoin,ethereum,solana");
 }
-#define UPDATE_INTERVAL 1000*60*1
 
 void loop() {
   unsigned long currenttime = millis();
-  if ((currenttime - last_update) > UPDATE_INTERVAL){
+  if ((currenttime - last_update) > UPDATE_INTERVAL) {
     last_update = currenttime;
     update_crypto("bitcoin,ethereum,solana");
   }
-
 }
-
-  

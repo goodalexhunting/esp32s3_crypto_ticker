@@ -1,11 +1,6 @@
-//Stock API key
-// #define STOCK_API_KEY "YOURAPIKEYHERE"
 // Colors
-// #define CUSTOM_DARK 0x4228 // Background color
-#define CUSTOM_DARK 0
 
 #define PIN_LCD_BL                   38
-
 #define PIN_LCD_D0                   39
 #define PIN_LCD_D1                   40
 #define PIN_LCD_D2                   41
