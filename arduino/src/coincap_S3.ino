@@ -28,7 +28,7 @@ void setup() {
   pinMode(PIN_POWER_ON, OUTPUT);
   digitalWrite(PIN_POWER_ON, HIGH);
   pinMode(14,INPUT_PULLUP);
-  WiFi.begin("","");
+  WiFi.begin("ssid","passwd");
 
   tft.begin();
   tft.setRotation(3);
