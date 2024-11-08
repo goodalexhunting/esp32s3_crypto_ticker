@@ -22,7 +22,7 @@ void setup() {
   pinMode(PIN_POWER_ON, OUTPUT);
   digitalWrite(PIN_POWER_ON, HIGH);
   pinMode(14, INPUT_PULLUP);
-  WiFi.begin("SKYSXQIX", "8RfGzsJxcrWd");
+  WiFi.begin("", "");
 
   tft.begin();
   tft.setRotation(3);
