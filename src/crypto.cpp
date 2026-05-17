@@ -53,8 +53,8 @@ void parse_data(String input) {
 
     // BTC
     tft.fillRect(btcRect.x, btcRect.y, btcRect.w, btcRect.h, TFT_DARKGREY);
-    tft.drawBitmap(btcRect.x + 10, btcRect.y + 10, bitcoin, 45, 45, TFT_ORANGE);
-    tft.setCursor(btcRect.x + 60, btcRect.y + 20);
+    // tft.drawBitmap(btcRect.x + 10, btcRect.y + 10, bitcoin, 45, 45, TFT_ORANGE);
+    tft.setCursor(btcRect.x + 60, btcRect.y + 10);
     tft.setTextSize(2);
     tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
     tft.print("BTC: $");
@@ -62,8 +62,8 @@ void parse_data(String input) {
 
     // SUI
     tft.fillRect(suiRect.x, suiRect.y, suiRect.w, suiRect.h, TFT_DARKGREY);
-    tft.drawBitmap(suiRect.x + 10, suiRect.y + 10, sui, 45, 45, TFT_NAVY);
-    tft.setCursor(suiRect.x + 60, suiRect.y + 20);
+    // tft.drawBitmap(suiRect.x + 10, suiRect.y + 10, sui, 45, 45, TFT_NAVY);
+    tft.setCursor(suiRect.x + 60, suiRect.y + 10);
     tft.setTextSize(2);
     tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
     tft.print("SUI: $");
@@ -71,8 +71,8 @@ void parse_data(String input) {
 
     // SOL
     tft.fillRect(solRect.x, solRect.y, solRect.w, solRect.h, TFT_DARKGREY);
-    tft.drawBitmap(solRect.x + 10, solRect.y + 10, solana, 45, 45, TFT_PURPLE);
-    tft.setCursor(solRect.x + 60, solRect.y + 20);
+    // tft.drawBitmap(solRect.x + 10, solRect.y + 10, solana, 45, 45, TFT_PURPLE);
+    tft.setCursor(solRect.x + 60, solRect.y + 10);
     tft.setTextSize(2);
     tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
     tft.print("SOL: $");
