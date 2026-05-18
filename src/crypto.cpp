@@ -2,14 +2,14 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <layout_manager.h>
+#include <lgfx_user_setup.h>
 #include <rects.h>
 
-#include "TFT_eSPI.h"
-extern TFT_eSPI tft;
-extern uint8_t  bitcoin[];
-extern uint8_t  sui[];
-extern uint8_t  solana[];
-extern void     parse_data(String Payload);
+extern uint8_t bitcoin[];
+extern uint8_t sui[];
+extern uint8_t solana[];
+extern void    parse_data(String Payload);
+extern LGFX    tft;
 
 void update_crypto() {
     if ((WiFi.status() != WL_CONNECTED)) {

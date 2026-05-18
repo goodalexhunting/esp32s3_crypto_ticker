@@ -6,30 +6,28 @@
  *
  */
 
+#include <lgfx_user_setup.h>
+
 #include "HTTPClient.h"
-#include "TFT_eSPI.h"
 #include "layout_manager.h"
-#include "pin_config.h"
 #include "wifi_mgr.h"
+
 
 #define UPDATE_INTERVAL 1000 * 60 * 1
 
 extern void            update_crypto();
-extern void            render_layout(TFT_eSPI& tft);
+extern void            render_layout(LovyanGFX& tft);
 unsigned long          last_update = 0L;
 Rect                   btcRect;
 Rect                   suiRect;
 Rect                   solRect;
 cryptoapp::WifiManager wifi;
-TFT_eSPI               tft = TFT_eSPI();
+LGFX                   tft;
 
 void setup() {
     Serial.println("BOOT 1");
     Serial.begin(115200);
-    pinMode(PIN_LCD_BL, OUTPUT);
-    digitalWrite(PIN_LCD_BL, HIGH);
-    pinMode(PIN_POWER_ON, OUTPUT);
-    digitalWrite(PIN_POWER_ON, HIGH);
+    tft.setBrightness(150);
     Serial.println("BOOT 2: WiFi starting");
     wifi.connectWifi();
     // TODO: when this fails, we should not continue with the rest of the setup, but instead show an
@@ -47,7 +45,7 @@ void setup() {
     update_crypto();
 }
 
-void render_layout(TFT_eSPI& tft) {
+void render_layout(LovyanGFX& tft) {
     LayoutManager layout = LayoutManager(tft.width(), tft.height());
 
     Rect          header  = layout.grid(1, 6, 0, 0, 1, 1);
