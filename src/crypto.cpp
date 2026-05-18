@@ -5,11 +5,26 @@
 #include <lgfx_user_setup.h>
 #include <rects.h>
 
-extern uint8_t bitcoin[];
-extern uint8_t sui[];
-extern uint8_t solana[];
-extern void    parse_data(String Payload);
-extern LGFX    tft;
+extern const uint8_t bitcoin[];
+extern const uint8_t sui[];
+extern const uint8_t solana[];
+extern void          parse_data(String Payload);
+extern LGFX          tft;
+
+struct CoinUI {
+    Rect*          rect;
+    const uint8_t* icon;
+    uint16_t       iconColor;
+    const char*    label;
+    float          value;
+};
+
+CoinUI coins[] = {{&btcRect, bitcoin, TFT_ORANGE, "BTC", 0},
+                  {&suiRect, sui, TFT_NAVY, "SUI", 0},
+                  {&solRect, solana, TFT_PURPLE, "SOL", 0}};
+
+int iconW = 45;
+int iconH = 45;
 
 void update_crypto() {
     if ((WiFi.status() != WL_CONNECTED)) {
@@ -36,6 +51,20 @@ void update_crypto() {
     http.end();
 }
 
+void drawCoin(const CoinUI& c) {
+    Rect r = *c.rect;
+    // int x = r.x + (r.w - iconW) / 2;
+    // int y = r.y + (r.h - iconH) / 2;
+    tft.fillRect(r.x, r.y, r.w, r.h, TFT_DARKGREY);
+    tft.drawBitmap(r.x, r.y, c.icon, iconW, iconH, c.iconColor);
+    char buf[16];
+    dtostrf(c.value, 1, 2, buf);
+    tft.setCursor(r.x + 60, r.y + 10);
+    tft.print(c.label);
+    tft.print(": $");
+    tft.print(buf);
+}
+
 JsonDocument doc;
 
 void parse_data(String input) {
@@ -47,36 +76,15 @@ void parse_data(String input) {
         return;
     }
 
-    float btc       = doc["bitcoin"]["usd"];
-    float sol       = doc["solana"]["usd"];
-    float sui_price = doc["sui"]["usd"];
+    coins[0].value = doc["bitcoin"]["usd"];
+    coins[1].value = doc["sui"]["usd"];
+    coins[2].value = doc["solana"]["usd"];
 
-    // BTC
-    tft.fillRect(btcRect.x, btcRect.y, btcRect.w, btcRect.h, TFT_DARKGREY);
-    // tft.drawBitmap(btcRect.x + 10, btcRect.y + 10, bitcoin, 45, 45, TFT_ORANGE);
-    tft.setCursor(btcRect.x + 60, btcRect.y + 10);
-    tft.setTextSize(2);
-    tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-    tft.print("BTC: $");
-    tft.println(String(btc, 2));
-
-    // SUI
-    tft.fillRect(suiRect.x, suiRect.y, suiRect.w, suiRect.h, TFT_DARKGREY);
-    // tft.drawBitmap(suiRect.x + 10, suiRect.y + 10, sui, 45, 45, TFT_NAVY);
-    tft.setCursor(suiRect.x + 60, suiRect.y + 10);
-    tft.setTextSize(2);
-    tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-    tft.print("SUI: $");
-    tft.println(String(sui_price, 2));
-
-    // SOL
-    tft.fillRect(solRect.x, solRect.y, solRect.w, solRect.h, TFT_DARKGREY);
-    // tft.drawBitmap(solRect.x + 10, solRect.y + 10, solana, 45, 45, TFT_PURPLE);
-    tft.setCursor(solRect.x + 60, solRect.y + 10);
-    tft.setTextSize(2);
-    tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-    tft.print("SOL: $");
-    tft.println(String(sol, 2));
-
+    for (int i = 0; i < 3; i++) {
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
+        tft.setTextSize(2);
+        drawCoin(coins[i]);
+    }
     Serial.println("Display updated");
 }
