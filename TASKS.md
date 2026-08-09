@@ -23,7 +23,7 @@
 
 ---
 
-# Task 1 — Network Web Configuration
+# Task 1 — Network Web Configuration ✅
 
 ## Objective
 
@@ -155,6 +155,25 @@ Before moving to Task 2, document:
 * mDNS library used.
 * Configuration storage mechanism.
 * Any limitations.
+
+### Implementation Notes
+
+* **Web server library**: Arduino `WebServer` (built into the ESP32 Arduino core).
+* **mDNS library**: Arduino `ESPmDNS` (built into the ESP32 Arduino core).
+* **Configuration storage**: NVS via the `Preferences` library. Ticker config is stored in the `ticker_cfg` namespace with per-ticker keys (`t0.label`, `t0.apiid`, `t0.quote`, `t0.color`, etc.).
+* **Architecture**: New `ConfigManager` class owns the ticker list and persists to NVS. New `ConfigServer` class handles HTTP requests and only manipulates the `ConfigManager` - it never touches display state. The display and market-data layers read their ticker list from the `ConfigManager`.
+* **API endpoints**:
+  * `GET /` — serves the configuration page.
+  * `GET /api/tickers` — returns the current ticker list as JSON.
+  * `POST /api/tickers` — adds a ticker (form: `label`, `apiId`, `quote`, optional `color`).
+  * `DELETE /api/tickers?id=N` — removes the ticker at index N.
+  * `POST /api/tickers/move` — reorders tickers (form: `from`, `to`).
+  * `POST /api/tickers/reset` — resets to the compile-time defaults.
+* **Limitations**:
+  * The web server only runs in station (connected) mode, not AP mode.
+  * The configuration page is served from LittleFS (`data/ticker_config.html`).
+  * The quote currency is shared across all tickers in a single CoinGecko request (the API only supports one `vs_currencies` per request).
+  * The display table header still says "PRICE (USD)" even if a non-USD quote is configured.
 
 ---
 
