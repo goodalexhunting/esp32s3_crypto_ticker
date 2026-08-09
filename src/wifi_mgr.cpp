@@ -184,7 +184,10 @@ void WifiManager::stopAP() {
     _server.stop();
     _dns.stop();
     WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_OFF);
+    // Switch to station mode only. Do NOT call WiFi.mode(WIFI_OFF) here:
+    // that would tear down a just-established STA connection (e.g. right
+    // after the user submits credentials via the captive portal).
+    WiFi.mode(WIFI_STA);
 }
 
 // ---------------------------------------------------------------------------
