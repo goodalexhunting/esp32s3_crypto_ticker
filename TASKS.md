@@ -304,7 +304,7 @@ Before completing the task, document:
 
 ---
 
-# Task 3 — 24-Hour Change and API Status
+# Task 3 — 24-Hour Change and API Status ✅
 
 ## Objective
 
@@ -432,6 +432,20 @@ Document:
 * Number of requests retained in the health history.
 * How long cached market data remains valid.
 * How API failures are handled.
+
+### Implementation Notes
+
+* **24h change source**: CoinGecko's `simple/price` endpoint with `include_24hr_change=true`. The response includes `{quote}_24h_change` for each coin, which is the genuine 24h percentage change from market data.
+* **Display**: The 24h change is shown on the ticker detail view (right-aligned below the current price). Positive changes are green, negative changes are red.
+* **API status indicator**: A small filled circle in the top-left corner of the header. Green = healthy, Yellow = degraded, Red = unavailable.
+* **Success/failure thresholds**: The `ApiHealth` class keeps a rolling history of the last 8 API requests. Status is derived as:
+  * All successes → GREEN
+  * Some successes, some failures → YELLOW
+  * All failures → RED
+* **Requests retained in health history**: 8 (fixed-size ring buffer).
+* **Cached market data validity**: Prices and 24h changes are kept in RAM indefinitely. On API failure, the last known valid data remains displayed. The graph continues to use existing historical data.
+* **API failure handling**: On a failed fetch, `ApiHealth::recordFailure()` is called, the status indicator is updated, and a "Fetch failed" message is shown. The last known prices and graph remain visible. When requests succeed again, the health recovers gradually (RED → YELLOW → GREEN as successes accumulate).
+* **Offline behaviour**: The device does not blank the display on API failure. It keeps showing the last known price, 24h change, and graph.
 
 ---
 
