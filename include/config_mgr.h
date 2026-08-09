@@ -7,7 +7,6 @@
 
 #include "app_config.h"
 
-
 namespace cryptoapp {
 
 /**
@@ -73,12 +72,23 @@ class ConfigManager {
     /** Reset to the compile-time default tickers. */
     void resetToDefaults();
 
+    /**
+     * Incremented whenever the ticker list changes (add/remove/move/reset).
+     * Callers can use this to detect configuration changes and refresh
+     * dependent state (e.g. display cycles or history buffers).
+     */
+    uint32_t revision() const {
+        return _revision;
+    }
+
    private:
     TickerConfig _tickers[MAX_TICKERS];
-    size_t       _count = 0;
+    size_t       _count    = 0;
+    uint32_t     _revision = 0;
 
     void load();
     void seedDefaults();
+    void touch();
 };
 
 }  // namespace cryptoapp

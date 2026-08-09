@@ -103,6 +103,8 @@ bool ConfigManager::add(const String& label,
         }
     }
 
+    touch();
+
     _tickers[_count].label = trimmedLabel.substring(0, MAX_LABEL_LEN);
     _tickers[_count].apiId = trimmedApiId.substring(0, MAX_APIID_LEN);
     _tickers[_count].quote = trimmedQuote.substring(0, MAX_QUOTE_LEN);
@@ -121,6 +123,7 @@ bool ConfigManager::remove(size_t i) {
         return false;
     }
 
+    touch();
     for (size_t j = i; j < _count - 1; j++) {
         _tickers[j] = _tickers[j + 1];
     }
@@ -135,6 +138,7 @@ bool ConfigManager::move(size_t from, size_t to) {
         return false;
     }
 
+    touch();
     TickerConfig tmp = _tickers[from];
     if (from < to) {
         for (size_t j = from; j < to; j++) {
@@ -181,7 +185,13 @@ void ConfigManager::save() {
 
 void ConfigManager::resetToDefaults() {
     seedDefaults();
+    touch();
     save();
+}
+
+void ConfigManager::touch() {
+    _revision++;
+    Serial.printf("[CFG] Revision bumped to %u\n", (unsigned)_revision);
 }
 
 }  // namespace cryptoapp

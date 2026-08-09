@@ -8,6 +8,15 @@ namespace cryptoapp {
 
 namespace {
 
+// Graph layout geometry (px)
+constexpr uint8_t GRAPH_INSET_X       = 12;
+constexpr uint8_t GRAPH_TOP           = 40;
+constexpr uint8_t GRAPH_BOTTOM_MARGIN = 8;
+constexpr uint8_t GRAPH_PAD           = 4;
+constexpr uint8_t DETAIL_LABEL_SIZE   = 2;
+constexpr uint8_t DETAIL_PRICE_SIZE   = 2;
+constexpr uint8_t DETAIL_QUOTE_SIZE   = 1;
+
 // ---------------------------------------------------------------------------
 // Layout geometry (px)
 // ---------------------------------------------------------------------------
@@ -148,6 +157,95 @@ void update_prices_display(const float* values, size_t count, const ConfigManage
 
     drawCoinTable(content, config);
     Serial.println("Display updated");
+}
+
+void update_ticker_display(const TickerConfig& ticker, float price, const HistoryBuffer& history) {
+    // Start from a clean slate every time so the header/footer etc.
+    // are rebuilt and the content area is blanked.
+    render_layout(tft);
+
+    LayoutManager layout(tft.width(), tft.height());
+    Rect          content = contentArea();
+    tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
+
+    // --- Label (brand colour) ---
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(ticker.color, TFT_BLACK);
+    tft.setTextSize(DETAIL_LABEL_SIZE);
+    tft.setCursor(content.x + GRAPH_INSET_X, content.y + 4);
+    tft.print(ticker.label);
+
+    // --- Quote currency (small, dimmed) ---
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setTextSize(DETAIL_QUOTE_SIZE);
+    tft.setCursor(content.x + GRAPH_INSET_X + 40, content.y + 12);
+    tft.print("/ ");
+    tft.print(ticker.quote);
+
+    // --- Current price ---
+    char buf[16];
+    formatPrice(price, buf, sizeof(buf));
+    char priceStr[24];
+    snprintf(priceStr, sizeof(priceStr), "$%s", buf);
+
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(DETAIL_PRICE_SIZE);
+    tft.setCursor(content.x + content.w - GRAPH_INSET_X, content.y + 4);
+    tft.print(priceStr);
+    tft.setTextDatum(TL_DATUM);
+
+    // --- Graph ---
+    int gx = content.x + GRAPH_INSET_X;
+    int gy = content.y + GRAPH_TOP;
+    int gw = content.w - GRAPH_INSET_X * 2;
+    int gh = content.y + content.h - gy - GRAPH_BOTTOM_MARGIN;
+
+    // Graph border
+    tft.drawRect(gx, gy, gw, gh, TFT_DARKGREY);
+
+    if (history.size() < 2) {
+        tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+        tft.setTextSize(DETAIL_QUOTE_SIZE);
+        tft.setCursor(gx + GRAPH_PAD, gy + 6);
+        tft.print("No history yet");
+        Serial.println("Ticker display (no history)");
+        return;
+    }
+
+    // Scale the samples into the graph rect.
+    float minVal = history.min();
+    float maxVal = history.max();
+    if (maxVal - minVal < 0.0001f) {
+        // Flat line: give a small pad so the line renders at mid-height.
+        minVal -= 1.0f;
+        maxVal += 1.0f;
+    }
+
+    float range  = maxVal - minVal;
+    int   innerW = gw - GRAPH_PAD * 2;
+    int   innerH = gh - GRAPH_PAD * 2;
+
+    // Draw the line graph.
+    int gxInner  = gx + GRAPH_PAD;
+    int gyBottom = gy + gh - GRAPH_PAD;
+
+    for (size_t i = 1; i < history.size(); i++) {
+        float f0 = (history.at(i - 1) - minVal) / range;
+        float f1 = (history.at(i) - minVal) / range;
+
+        float a = (i - 1) / (float)(history.size() - 1);
+        float b = i / (float)(history.size() - 1);
+
+        int x0 = gxInner + (int)(a * (innerW - 1));
+        int x1 = gxInner + (int)(b * (innerW - 1));
+        int y0 = gyBottom - (int)(f0 * (innerH - 1));
+        int y1 = gyBottom - (int)(f1 * (innerH - 1));
+
+        tft.drawLine(x0, y0, x1, y1, ticker.color);
+    }
+
+    Serial.println("Ticker display updated");
 }
 
 void show_message(const char* msg) {

@@ -6,8 +6,15 @@ namespace cryptoapp {
 
 enum class DisplayPowerState : uint8_t { ON, DIMMED, OFF };
 
+enum class ButtonEvent : uint8_t {
+    BUTTON_1,  // GPIO0  (previous)
+    BUTTON_2,  // GPIO14 (next)
+    NONE,
+};
+
 /**
- * Single layer owning the display backlight/panel power state.
+ * Single layer owning the display backlight/panel power state and the
+ * debounced button input.
  *
  * State machine: ON -> DIMMED -> OFF based on idle time since the last
  * user input, and back to ON on a button press (or any future input via
@@ -23,19 +30,25 @@ class DisplayPower {
     /**
      * Configure the layer and put the display into the full-brightness ON
      * state. When `enabled` is false the display stays permanently on and
-     * handle() does nothing.
+     * handle() does nothing (but buttons are still polled).
      */
     void begin(bool enabled);
 
     /**
-     * Call from loop(): poll the wake buttons and run the idle timeout
+     * Call from loop(): poll the buttons and run the idle timeout
      * state machine.
      */
     void handle();
 
     /**
-     * Register user activity (future touch/motion inputs). Resets the idle
-     * timers and wakes the display if it is dimmed or off.
+     * Returns true exactly once per button press. The pressed button is
+     * written to `event`. Use this to detect navigation events.
+     */
+    bool consumeButtonEvent(ButtonEvent& event);
+
+    /**
+     * Register user activity (e.g. touch). Resets the idle timers and
+     * wakes the display if it is dimmed or off.
      */
     void notifyActivity();
 
@@ -66,17 +79,26 @@ class DisplayPower {
    private:
     void setState(DisplayPowerState newState);
     void pollButtons(unsigned long now);
+    bool debouncePin(
+        uint8_t pin, bool& active, bool& lastRaw, unsigned long& lastChange, unsigned long now);
 
     DisplayPowerState _state        = DisplayPowerState::ON;
     bool              _enabled      = false;
     bool              _wakePending  = false;
     bool              _sleepPending = false;
 
-    // Button debounce state
-    bool          _pressEvent   = false;
-    bool          _rawLevel     = false;
-    bool          _debounced    = false;
-    unsigned long _lastChangeMs = 0;
+    // Debounce state per button
+    bool          _btn1Raw        = false;
+    bool          _btn1Active     = false;
+    unsigned long _btn1LastChange = 0;
+
+    bool          _btn2Raw        = false;
+    bool          _btn2Active     = false;
+    unsigned long _btn2LastChange = 0;
+
+    // Pending button event
+    bool        _buttonEvent = false;
+    ButtonEvent _buttonWhich = ButtonEvent::NONE;
 
     // millis() when the current state was entered (or when activity
     // restarted the ON idle clock).

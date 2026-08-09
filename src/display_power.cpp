@@ -21,11 +21,17 @@ void DisplayPower::begin(bool enabled) {
     pinMode(PIN_BUTTON_2, INPUT_PULLUP);
 
     // Seed the debounce state so the initial level never looks like a press.
-    const bool level  = (digitalRead(PIN_BUTTON_1) == LOW) || (digitalRead(PIN_BUTTON_2) == LOW);
-    _rawLevel         = level;
-    _debounced        = level;
-    _pressEvent       = false;
-    _lastChangeMs     = millis();
+    _btn1Raw        = digitalRead(PIN_BUTTON_1) == LOW;
+    _btn1Active     = _btn1Raw;
+    _btn1LastChange = millis();
+
+    _btn2Raw        = digitalRead(PIN_BUTTON_2) == LOW;
+    _btn2Active     = _btn2Raw;
+    _btn2LastChange = millis();
+
+    _buttonEvent = false;
+    _buttonWhich = ButtonEvent::NONE;
+
     _stateChangedAtMs = millis();
 
     // Put the display into the full-brightness ON state. When disabled
@@ -36,15 +42,17 @@ void DisplayPower::begin(bool enabled) {
 }
 
 void DisplayPower::handle() {
+    // Always poll the buttons, even when power management is disabled
+    // (AP mode), so navigation events are still available.
+    const unsigned long now = millis();
+    pollButtons(now);
+
     if (!_enabled) {
         return;
     }
 
-    const unsigned long now = millis();
-    pollButtons(now);
-
-    if (_pressEvent) {
-        _pressEvent = false;
+    // A button press counts as user activity: wake the display.
+    if (_buttonEvent) {
         notifyActivity();
         return;
     }
@@ -56,6 +64,49 @@ void DisplayPower::handle() {
                (now - _stateChangedAtMs) >= DISPLAY_OFF_TIMEOUT_MS) {
         setState(DisplayPowerState::OFF);
     }
+}
+
+bool DisplayPower::debouncePin(
+    uint8_t pin, bool& active, bool& lastRaw, unsigned long& lastChange, unsigned long now) {
+    const bool raw = digitalRead(pin) == LOW;  // active-low
+
+    if (raw != lastRaw) {
+        lastRaw    = raw;
+        lastChange = now;
+    }
+
+    if (raw != active && (now - lastChange) >= BUTTON_DEBOUNCE_MS) {
+        active = raw;
+        if (active) {
+            // Rising edge (button pressed).
+            return true;
+        }
+    }
+    return false;
+}
+
+void DisplayPower::pollButtons(unsigned long now) {
+    if (debouncePin(PIN_BUTTON_1, _btn1Active, _btn1Raw, _btn1LastChange, now)) {
+        _buttonEvent = true;
+        _buttonWhich = ButtonEvent::BUTTON_1;
+        Serial.println("[POWER] Button 1 pressed");
+    }
+    if (debouncePin(PIN_BUTTON_2, _btn2Active, _btn2Raw, _btn2LastChange, now)) {
+        _buttonEvent = true;
+        _buttonWhich = ButtonEvent::BUTTON_2;
+        Serial.println("[POWER] Button 2 pressed");
+    }
+}
+
+bool DisplayPower::consumeButtonEvent(ButtonEvent& event) {
+    if (!_buttonEvent) {
+        event = ButtonEvent::NONE;
+        return false;
+    }
+    event        = _buttonWhich;
+    _buttonEvent = false;
+    _buttonWhich = ButtonEvent::NONE;
+    return true;
 }
 
 void DisplayPower::notifyActivity() {
@@ -115,22 +166,6 @@ void DisplayPower::setState(DisplayPowerState newState) {
             _sleepPending = true;
             Serial.println("[POWER] Display OFF");
             break;
-    }
-}
-
-void DisplayPower::pollButtons(unsigned long now) {
-    const bool raw = (digitalRead(PIN_BUTTON_1) == LOW) || (digitalRead(PIN_BUTTON_2) == LOW);
-
-    if (raw != _rawLevel) {
-        _rawLevel     = raw;
-        _lastChangeMs = now;
-    }
-
-    if (raw != _debounced && (now - _lastChangeMs) >= BUTTON_DEBOUNCE_MS) {
-        _debounced = raw;
-        if (_debounced) {
-            _pressEvent = true;
-        }
     }
 }
 

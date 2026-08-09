@@ -52,6 +52,15 @@ constexpr size_t NUM_DEFAULT_TICKERS = sizeof(DEFAULT_TICKERS) / sizeof(DEFAULT_
 constexpr size_t MAX_TICKERS         = 8;
 
 // ---------------------------------------------------------------------------
+// Historical price data
+// ---------------------------------------------------------------------------
+// Each configured ticker keeps a bounded ring buffer of price samples.
+// HISTORY_POINTS at HISTORY_SAMPLE_INTERVAL_MS resolution.
+constexpr size_t   HISTORY_POINTS             = 144;
+constexpr uint32_t HISTORY_SAMPLE_INTERVAL_MS = 60UL * 1000UL;  // 1 minute
+constexpr uint32_t HISTORY_BACKFILL_DAYS      = 7;              // CoinGecko market_chart range
+
+// ---------------------------------------------------------------------------
 // Display power management
 // ---------------------------------------------------------------------------
 // The T-Display S3 backlight is PWM-driven. To prevent burn-in from a
