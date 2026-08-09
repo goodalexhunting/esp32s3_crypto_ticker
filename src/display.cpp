@@ -10,7 +10,7 @@ namespace {
 // Layout geometry (px)
 // ---------------------------------------------------------------------------
 constexpr uint8_t TABLE_INSET   = 10;
-constexpr uint8_t HEADER_H      = 20;
+constexpr uint8_t HEADER_H      = 24;
 constexpr uint8_t ROW_H         = 24;
 constexpr uint8_t TEXT_OFFSET_X = 8;
 constexpr uint8_t TEXT_OFFSET_Y = 6;
@@ -35,6 +35,7 @@ constexpr uint8_t MESSAGE_INSET = 8;
 // Text sizes
 constexpr uint8_t TITLE_TEXT_SIZE = 2;
 constexpr uint8_t BODY_TEXT_SIZE  = 1;
+constexpr uint8_t TABLE_TEXT_SIZE = 2;
 
 // Runtime storage for the latest fetched prices.
 float coinValues[NUM_COINS] = {};
@@ -73,11 +74,11 @@ void drawCoinTable(const Rect& content) {
     tft.drawLine(colSplit, table.y, colSplit, table.y + table.h, TFT_WHITE);
     tft.drawLine(table.x, table.y + HEADER_H, table.x + table.w, table.y + HEADER_H, TFT_WHITE);
 
-    tft.setTextSize(BODY_TEXT_SIZE);
+    tft.setTextSize(TABLE_TEXT_SIZE);
     tft.setTextDatum(TL_DATUM);
 
     // Header row
-    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setCursor(table.x + TEXT_OFFSET_X, table.y + TEXT_OFFSET_Y);
     tft.print("SYMBOL");
     tft.setCursor(colSplit + TEXT_OFFSET_X, table.y + TEXT_OFFSET_Y);
