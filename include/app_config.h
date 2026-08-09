@@ -21,9 +21,21 @@ constexpr uint16_t SCREEN_HEIGHT = 170;
 // ---------------------------------------------------------------------------
 // Firmware version
 // ---------------------------------------------------------------------------
-// Single authoritative location for the firmware version. The OTA update
-// mechanism compares this against the remote manifest version.
-constexpr char FW_VERSION[] = "1.0.0";
+// Single authoritative location for the firmware version (MAJOR.MINOR.PATCH).
+// The OTA update mechanism compares this against the remote manifest version.
+// CI (see .github/workflows/build.yml) overrides FW_VERSION_STR at production
+// build time with -DFW_VERSION_STR=X.Y.Z so the released firmware reports the
+// exact version of the production release it was built from.
+#ifndef FW_VERSION_STR
+#define FW_VERSION_STR 1.0.0
+#endif
+
+// Stringize the version macro into a plain "X.Y.Z" string constant.
+#define FW_VERSION_STR_IMPL_(v) #v
+#define FW_VERSION_STR_IMPL(v) FW_VERSION_STR_IMPL_(v)
+constexpr char FW_VERSION[] = FW_VERSION_STR_IMPL(FW_VERSION_STR);
+#undef FW_VERSION_STR_IMPL
+#undef FW_VERSION_STR_IMPL_
 
 // ---------------------------------------------------------------------------
 // OTA updates

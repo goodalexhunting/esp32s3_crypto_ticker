@@ -2,15 +2,21 @@ name: PlatformIO Build
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches: [dev, staging, prod]
   pull_request:
-    branches: [main]
+    branches: [dev, staging, prod]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      is_prod: ${{ steps.meta.outputs.is_prod }}
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,24 +29,99 @@ jobs:
       - name: Install PlatformIO Core
         run: pip install --upgrade platformio
 
+      # Compute the production release version only for pushes to prod.
+      # MAJOR.MINOR is read from FW_VERSION in include/app_config.h
+      # (user-managed, never auto-incremented). PATCH is auto-incremented
+      # from the highest existing v<major>.<minor>.x tag; if no such tag
+      # exists, PATCH starts at 0 (so the first 1.0.x release is 1.0.0).
+      - name: Compute release metadata
+        id: meta
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isProd =
+              context.eventName === 'push' && context.ref === 'refs/heads/prod';
+            let version = '';
+            let tag = '';
+            let fwFlags = '';
+            if (isProd) {
+              const fs = require('fs');
+              const header = fs.readFileSync(
+                `${process.env.GITHUB_WORKSPACE}/include/app_config.h`,
+                'utf8'
+              );
+              const match = header.match(
+                /#define\s+FW_VERSION_STR\s+(\d+)\.(\d+)\.(\d+)/
+              );
+              if (!match) {
+                throw new Error(
+                  'Could not parse FW_VERSION_STR from include/app_config.h'
+                );
+              }
+              const majorMinor = `${match[1]}.${match[2]}`;
+              const { data: refs } = await github.rest.git.listMatchingRefs({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/v${majorMinor}.`,
+              });
+              let maxPatch = -1;
+              for (const ref of refs) {
+                const p = ref.ref.match(
+                  new RegExp(`^refs/tags/v${majorMinor}\\.(\\d+)$`)
+                );
+                if (p) maxPatch = Math.max(maxPatch, parseInt(p[1], 10));
+              }
+              const patch = maxPatch + 1;
+              version = `${majorMinor}.${patch}`;
+              tag = `v${version}`;
+              fwFlags = `-DFW_VERSION_STR=${version}`;
+            }
+            core.setOutput('is_prod', isProd ? '1' : '0');
+            core.setOutput('version', version);
+            core.setOutput('tag', tag);
+            core.setOutput('fw_flags', fwFlags);
+
       - name: Build firmware
         run: pio run -e lilygo-t-display-s3
+        env:
+          PLATFORMIO_BUILD_FLAGS: ${{ steps.meta.outputs.fw_flags }}
+
+      - name: Build LittleFS filesystem image
+        run: pio run -e lilygo-t-display-s3 -t buildfs
+        env:
+          PLATFORMIO_BUILD_FLAGS: ${{ steps.meta.outputs.fw_flags }}
+
+      - name: Stage release assets
+        run: |
+          mkdir -p dist
+          cp .pio/build/lilygo-t-display-s3/firmware.bin dist/firmware.bin
+          cp .pio/build/lilygo-t-display-s3/partitions.bin dist/partitions.bin
+          if [ -f .pio/build/lilygo-t-display-s3/littlefs.bin ]; then
+            cp .pio/build/lilygo-t-display-s3/littlefs.bin dist/littlefs.bin
+          elif [ -f .pio/build/lilygo-t-display-s3/spiffs.bin ]; then
+            cp .pio/build/lilygo-t-display-s3/spiffs.bin dist/littlefs.bin
+          else
+            echo "::error::LittleFS filesystem image not found"
+            exit 1
+          fi
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: firmware-lilygo-t-display-s3
           path: |
-            .pio/build/lilygo-t-display-s3/firmware.bin
-            .pio/build/lilygo-t-display-s3/partitions.bin
+            dist/firmware.bin
+            dist/partitions.bin
+            dist/littlefs.bin
           if-no-files-found: error
           retention-days: 30
 
   release:
-    # Publish a GitHub Release with the firmware + manifest:
-    #   - every push to main  -> nightly release, version = FW_VERSION
-    #   - vX.Y.Z tag push     -> versioned release, version = tag
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    # Production release, only for pushes to the prod branch:
+    #   - deletes old non-production (nightly) releases so /releases/latest
+    #     always points at a stable production release for OTA
+    #   - publishes the firmware + LittleFS image + OTA manifest as assets
+    if: needs.build.outputs.is_prod == '1'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -55,48 +136,47 @@ jobs:
           name: firmware-lilygo-t-display-s3
           path: dist
 
+      - name: Delete legacy non-production releases
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            for (const rel of releases) {
+              // Keep stable production releases (tagged vX.Y.Z); delete
+              // everything else (nightly/dev artefacts).
+              if (/^v\d+\.\d+\.\d+$/.test(rel.tag_name)) continue;
+              console.log(`Deleting release "${rel.name}" (${rel.tag_name})`);
+              await github.rest.repos.deleteRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: rel.id,
+              });
+              try {
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${rel.tag_name}`,
+                });
+              } catch (err) {
+                console.log(`Tag ${rel.tag_name} not deleted: ${err.message}`);
+              }
+            }
+
       - name: Compute SHA-256
         id: sha256
         run: |
           echo "hash=$(sha256sum dist/firmware.bin | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Determine release metadata
-        id: meta
-        run: |
-          # Single authoritative version, from include/app_config.h.
-          FW_VERSION="$(sed -n 's/.*FW_VERSION\[\] = "\([0-9][0-9.]*\)".*/\1/p' include/app_config.h)"
-          if [[ -z "${FW_VERSION}" ]]; then
-            echo "::error::Could not parse FW_VERSION from include/app_config.h"
-            exit 1
-          fi
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            # Versioned release: strip refs/tags/ and the leading 'v' so the
-            # manifest version is a plain X.Y.Z the device can compare.
-            VERSION="${GITHUB_REF#refs/tags/v}"
-            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
-            SUFFIX=""
-            # Guard against the OTA re-install loop: tag must match FW_VERSION.
-            if [[ "${VERSION}" != "${FW_VERSION}" ]]; then
-              echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match FW_VERSION=${FW_VERSION} in include/app_config.h. Bump FW_VERSION first."
-              exit 1
-            fi
-          else
-            # Push to main: nightly release versioned by FW_VERSION so the
-            # device never sees a persistently newer version and re-installs.
-            VERSION="${FW_VERSION}"
-            RELEASE_TAG="nightly-${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER}"
-            SUFFIX=" (nightly ${GITHUB_SHA::7})"
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "suffix=${SUFFIX}" >> "$GITHUB_OUTPUT"
-
       - name: Create manifest
         run: |
           cat > dist/ota_manifest.json << EOF
           {
-            "version": "${{ steps.meta.outputs.version }}",
-            "firmware_url": "https://github.com/${{ github.repository }}/releases/download/${{ steps.meta.outputs.tag }}/firmware.bin",
+            "version": "${{ needs.build.outputs.version }}",
+            "firmware_url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.build.outputs.tag }}/firmware.bin",
             "sha256": "${{ steps.sha256.outputs.hash }}"
           }
           EOF
@@ -104,11 +184,14 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: Firmware ${{ steps.meta.outputs.version }}${{ steps.meta.outputs.suffix }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Firmware ${{ needs.build.outputs.version }}
           files: |
             dist/firmware.bin
             dist/partitions.bin
+            dist/littlefs.bin
             dist/ota_manifest.json
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false

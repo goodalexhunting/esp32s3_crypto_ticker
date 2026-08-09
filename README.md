@@ -83,16 +83,18 @@ API endpoints: `GET /` (page), `GET /api/tickers`, `POST /api/tickers` (add), `D
 
 ### How releases are generated (GitHub Actions)
 
-`.github/workflows/build.yml` builds the firmware with PlatformIO on every push/PR and then:
+`.github/workflows/build.yml` uses the three-stage promotion model **`dev` → `staging` → `prod`**:
 
-- **Every push to `main`** → a **nightly release** tagged `nightly-<short-sha>-<run>` is auto-published, with the manifest version set to the current `FW_VERSION`.
-- **Pushing a `vX.Y.Z` tag** → a versioned release is published; the tag must match `FW_VERSION` (e.g. `v1.1.0` requires `FW_VERSION = "1.1.0"`), otherwise the workflow fails to prevent the device re-installing the same firmware forever.
+- Pushes/PRs to `dev` and `staging` are **build-verified only** — no releases are published.
+- **Every push/merge into `prod`** builds the firmware **and** the LittleFS filesystem image, then auto-increments the **PATCH** number (e.g. `1.0.0` → `1.0.1`). `MAJOR.MINOR` is user-managed via `FW_VERSION` in `include/app_config.h` and is never auto-incremented.
+- The computed version is baked into the firmware at build time, a git tag `vX.Y.Z` is created, and a stable GitHub Release is published.
 
-Each release carries three assets: `firmware.bin`, `partitions.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256).
+Production releases carry four assets: `firmware.bin`, `partitions.bin`, `littlefs.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256). Legacy non-production releases (e.g. old `nightly-*` releases) are deleted automatically so `/releases/latest` always points at a stable production release for OTA.
 
 ### Rolling out a firmware update
 
-Just bump `FW_VERSION` in `include/app_config.h` and push to `main` — the nightly release advertises the new version and devices install it on their next boot. For a clean semantic version, push a matching tag instead (e.g. `git tag v1.1.0 && git push origin v1.1.0`).
+- **Patch release** — just merge into `prod`; CI auto-increments the patch (e.g. `1.0.0` → `1.0.1`) and publishes.
+- **Major/minor release** — bump `MAJOR.MINOR` in `include/app_config.h` on `dev` (e.g. `1.0.1` → `1.1.0`), then promote `dev → staging → prod`. The next push to `prod` publishes `1.1.0`.
 
 ## Building
 
@@ -129,7 +131,7 @@ pio run -e lilygo-t-display-s3 -t uploadfs
 - `src/qr_display.cpp` — QR rendering for the AP-mode setup screen.
 - `include/app_config.h` — central configuration (screen size, `FW_VERSION`, mDNS hostname, OTA manifest URL, default tickers, timing).
 - `data/` — LittleFS web pages (`wifi_config.html`, `ticker_config.html`).
-- `.github/workflows/build.yml` — CI build + auto-published releases (nightly on `main`, versioned on `v*` tags).
+- `.github/workflows/build.yml` — CI build (`dev`/`staging`) + auto-published production releases on `prod`.
 
 ## Known Limitations
 
