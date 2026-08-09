@@ -6,7 +6,7 @@
 //
 // Central configuration for the ESP32-S3 Crypto Ticker.
 // Adjust these values to customise the display, the CoinGecko
-// endpoint, and the cryptocurrencies being tracked.
+// endpoint, and the default cryptocurrencies being tracked.
 //
 
 // ---------------------------------------------------------------------------
@@ -19,28 +19,37 @@ constexpr uint16_t SCREEN_WIDTH  = 320;
 constexpr uint16_t SCREEN_HEIGHT = 170;
 
 // ---------------------------------------------------------------------------
+// mDNS hostname
+// ---------------------------------------------------------------------------
+// The device advertises itself as <MDNS_HOSTNAME>.local on the local network.
+// This is the single authoritative location for the hostname.
+constexpr char MDNS_HOSTNAME[] = "crypto-ticker";
+
+// ---------------------------------------------------------------------------
 // CoinGecko API
 // ---------------------------------------------------------------------------
 constexpr char COINGECKO_URL[] = "https://api.coingecko.com/api/v3/simple/price?ids=";
 
 // ---------------------------------------------------------------------------
-// Tracked cryptocurrencies
+// Default tracked cryptocurrencies
 // ---------------------------------------------------------------------------
-// {label, CoinGecko API id, display colour (RGB565)}
+// {label, CoinGecko API id, quote currency, display colour (RGB565)}
 // RGB565: 0bRRRRRGGGGGGBBBBB
-struct CoinConfig {
+struct DefaultTicker {
     const char* label;  // Display label, e.g. "BTC"
     const char* apiId;  // CoinGecko id, e.g. "bitcoin"
+    const char* quote;  // Quote currency, e.g. "usd" or "usdc"
     uint16_t    color;  // Brand colour for the label (RGB565)
 };
 
-constexpr CoinConfig COINS[] = {
-    {"BTC", "bitcoin", 0xFFE0},  // yellow
-    {"SOL", "solana", 0xF81F},   // purple
-    {"SUI", "sui", 0x07FF},      // cyan
+constexpr DefaultTicker DEFAULT_TICKERS[] = {
+    {"BTC", "bitcoin", "usd", 0xFFE0},  // yellow
+    {"SOL", "solana", "usd", 0xF81F},   // purple
+    {"SUI", "sui", "usd", 0x07FF},      // cyan
 };
 
-constexpr size_t NUM_COINS = sizeof(COINS) / sizeof(COINS[0]);
+constexpr size_t NUM_DEFAULT_TICKERS = sizeof(DEFAULT_TICKERS) / sizeof(DEFAULT_TICKERS[0]);
+constexpr size_t MAX_TICKERS         = 8;
 
 // ---------------------------------------------------------------------------
 // Display power management

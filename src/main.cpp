@@ -1,5 +1,8 @@
 #include <Arduino.h>
+#include <ESPmDNS.h>
 #include <app_config.h>
+#include <config_mgr.h>
+#include <config_server.h>
 #include <crypto.h>
 #include <display.h>
 #include <display_power.h>
@@ -16,9 +19,11 @@ constexpr uint8_t  QR_BOTTOM_MARGIN = 10;                 // px from the bottom 
 constexpr uint16_t QR_TITLE_Y       = QR_TOP_MARGIN;
 constexpr uint16_t QR_TEXT_Y        = SCREEN_HEIGHT - QR_BOTTOM_MARGIN;
 
-cryptoapp::WifiManager  wifi;
-LGFX                    tft;
-cryptoapp::DisplayPower displayPower;
+cryptoapp::WifiManager   wifi;
+cryptoapp::ConfigManager config;
+cryptoapp::ConfigServer  configServer(config);
+LGFX                     tft;
+cryptoapp::DisplayPower  displayPower;
 
 // Put the whole device to sleep: power down the WiFi radio, then enter
 // deep sleep until one of the wake buttons is pressed. A wake restarts
@@ -51,13 +56,13 @@ void handleSerialCommand() {
 // Fetch prices, update the display, and unmount the filesystem once the
 // first successful update has happened. Returns true on success.
 bool attemptUpdate() {
-    float values[NUM_COINS];
-    if (!fetch_prices(values, NUM_COINS)) {
-        show_message("Fetch failed");
+    float values[MAX_TICKERS];
+    if (!cryptoapp::fetch_prices(values, config.count(), config)) {
+        cryptoapp::show_message("Fetch failed");
         return false;
     }
 
-    update_prices_display(values, NUM_COINS);
+    cryptoapp::update_prices_display(values, config.count(), config);
     wifi.unmountFileSystem();
     return true;
 }
@@ -75,6 +80,9 @@ void setup() {
     tft.setTextSize(2);
     tft.setCursor(0, 0);
 
+    // Load the ticker configuration from NVS (or seed defaults).
+    config.begin();
+
     Serial.println("[BOOT] WiFi starting");
     bool connected = wifi.begin();
     Serial.printf("[MAIN] wifi.begin() -> %s\n", connected ? "CONNECTED" : "AP_MODE");
@@ -83,7 +91,7 @@ void setup() {
     // setup screen must stay permanently lit.
     displayPower.begin(connected && DISPLAY_POWER_ENABLED);
 
-    render_layout(tft);
+    cryptoapp::render_layout(tft);
 
     if (!connected) {
         // AP mode: show a QR code that invites the user to join the open AP.
@@ -101,6 +109,17 @@ void setup() {
         tft.drawString("Join AP: " + wifi.getAPName(), SCREEN_WIDTH / 2, QR_TEXT_Y);
         tft.setTextDatum(top_left);
     } else {
+        // Start mDNS so the device is reachable at http://crypto-ticker.local
+        if (MDNS.begin(MDNS_HOSTNAME)) {
+            MDNS.addService("http", "tcp", 80);
+            Serial.printf("[MDNS] Started: http://%s.local\n", MDNS_HOSTNAME);
+        } else {
+            Serial.println("[MDNS] Failed to start - continuing without mDNS");
+        }
+
+        // Start the ticker configuration web server.
+        configServer.begin();
+
         attemptUpdate();
     }
 }
@@ -121,6 +140,9 @@ void loop() {
     }
 
     if (wifi.isConnected()) {
+        // Handle the ticker configuration web server.
+        configServer.handle();
+
         static constexpr unsigned long UPDATE_INTERVAL = 60UL * 1000UL;  // 1 minute
         // Initialize so the first fetch happens immediately once connected,
         // rather than waiting a full interval after boot.

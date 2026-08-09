@@ -4,6 +4,8 @@
 
 #include "app_config.h"
 
+namespace cryptoapp {
+
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -38,7 +40,7 @@ constexpr uint8_t BODY_TEXT_SIZE  = 1;
 constexpr uint8_t TABLE_TEXT_SIZE = 2;
 
 // Runtime storage for the latest fetched prices.
-float coinValues[NUM_COINS] = {};
+float coinValues[MAX_TICKERS] = {};
 
 void formatPrice(float value, char* buf, size_t len) {
     if (value >= 1000.0f) {
@@ -55,7 +57,7 @@ Rect contentArea() {
     return layout.grid(GRID_COLS, GRID_ROWS, 0, CONTENT_ROW, 1, CONTENT_ROWSPAN);
 }
 
-void drawCoinTable(const Rect& content) {
+void drawCoinTable(const Rect& content, const ConfigManager& config) {
     // Table bounds
     Rect table = {content.x + TABLE_INSET,
                   content.y + TABLE_INSET,
@@ -66,8 +68,9 @@ void drawCoinTable(const Rect& content) {
 
     // Row height adapts to the available space when the screen is smaller
     // than the original target display.
-    const int rowH =
-        (table.h - HEADER_H) / NUM_COINS > ROW_H ? ROW_H : (table.h - HEADER_H) / NUM_COINS;
+    const size_t numCoins = config.count();
+    const int    rowH =
+        (table.h - HEADER_H) / numCoins > ROW_H ? ROW_H : (table.h - HEADER_H) / numCoins;
 
     // Borders via cheap primitives
     tft.drawRect(table.x, table.y, table.w, table.h, TFT_WHITE);
@@ -85,7 +88,7 @@ void drawCoinTable(const Rect& content) {
     tft.print("PRICE (USD)");
 
     // Coin rows
-    for (int i = 0; i < NUM_COINS; i++) {
+    for (size_t i = 0; i < numCoins; i++) {
         int rowY = table.y + HEADER_H + i * rowH;
 
         char buf[16];
@@ -95,9 +98,9 @@ void drawCoinTable(const Rect& content) {
         snprintf(priceStr, sizeof(priceStr), "$%s", buf);
 
         // Symbol (brand color)
-        tft.setTextColor(COINS[i].color, TFT_BLACK);
+        tft.setTextColor(config.get(i).color, TFT_BLACK);
         tft.setCursor(table.x + TEXT_OFFSET_X, rowY + TEXT_OFFSET_Y);
-        tft.print(COINS[i].label);
+        tft.print(config.get(i).label);
 
         // Price (right-aligned in the price column)
         int priceW = tft.textWidth(priceStr);
@@ -131,9 +134,9 @@ void render_layout(LovyanGFX& display) {
     display.print("By github.com/goodalexhunting");
 }
 
-void update_prices_display(const float* values, size_t count) {
-    if (count > NUM_COINS) count = NUM_COINS;
-    for (size_t i = 0; i < count; i++) {
+void update_prices_display(const float* values, size_t count, const ConfigManager& config) {
+    size_t n = count < config.count() ? count : config.count();
+    for (size_t i = 0; i < n; i++) {
         coinValues[i] = values[i];
     }
 
@@ -143,7 +146,7 @@ void update_prices_display(const float* values, size_t count) {
     Rect content = contentArea();
     tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
 
-    drawCoinTable(content);
+    drawCoinTable(content, config);
     Serial.println("Display updated");
 }
 
@@ -156,3 +159,5 @@ void show_message(const char* msg) {
     tft.setCursor(content.x + MESSAGE_INSET, content.y + MESSAGE_INSET);
     tft.print(msg);
 }
+
+}  // namespace cryptoapp

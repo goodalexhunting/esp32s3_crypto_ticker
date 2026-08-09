@@ -7,26 +7,36 @@
 
 #include "app_config.h"
 
+namespace cryptoapp {
+
 namespace {
 
-void buildUrl(String& url) {
+void buildUrl(String& url, const ConfigManager& config) {
     url = COINGECKO_URL;
-    for (int i = 0; i < NUM_COINS; i++) {
+    for (size_t i = 0; i < config.count(); i++) {
         if (i > 0) url += ",";
-        url += COINS[i].apiId;
+        url += config.get(i).apiId;
     }
-    url += "&vs_currencies=usd";
+    url += "&vs_currencies=";
+    // Use the quote currency of the first ticker. All tickers share the
+    // same quote currency in practice, but we build the URL from the
+    // first configured ticker's quote.
+    if (config.count() > 0) {
+        url += config.get(0).quote;
+    } else {
+        url += "usd";
+    }
 }
 
 }  // namespace
 
-bool fetch_prices(float* outValues, size_t count) {
+bool fetch_prices(float* outValues, size_t count, const ConfigManager& config) {
     if (WiFi.status() != WL_CONNECTED) {
         return false;
     }
 
     String url;
-    buildUrl(url);
+    buildUrl(url, config);
 
     HTTPClient http;
     http.begin(url);
@@ -47,9 +57,10 @@ bool fetch_prices(float* outValues, size_t count) {
                 return false;
             }
 
-            size_t n = count < NUM_COINS ? count : NUM_COINS;
+            size_t n = count < config.count() ? count : config.count();
             for (size_t i = 0; i < n; i++) {
-                outValues[i] = doc[COINS[i].apiId]["usd"] | 0.0f;
+                const TickerConfig& t = config.get(i);
+                outValues[i]          = doc[t.apiId][t.quote] | 0.0f;
             }
 
             http.end();
@@ -62,3 +73,5 @@ bool fetch_prices(float* outValues, size_t count) {
     http.end();
     return false;
 }
+
+}  // namespace cryptoapp
