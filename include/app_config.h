@@ -41,3 +41,20 @@ constexpr CoinConfig COINS[] = {
 };
 
 constexpr size_t NUM_COINS = sizeof(COINS) / sizeof(COINS[0]);
+
+// ---------------------------------------------------------------------------
+// Display power management
+// ---------------------------------------------------------------------------
+// The T-Display S3 backlight is PWM-driven. To prevent burn-in from a
+// constantly-lit panel, the display dims after an idle period and turns
+// fully off (panel sleep + zero backlight) after a longer idle period.
+// Any of the wake buttons turns it back on and restarts the timers.
+constexpr bool     DISPLAY_POWER_ENABLED   = true;
+constexpr uint8_t  DISPLAY_FULL_BRIGHTNESS = 150;  // matches the previous hardcoded value
+constexpr uint8_t  DISPLAY_DIM_BRIGHTNESS  = 10;
+constexpr uint32_t DISPLAY_DIM_TIMEOUT_MS  = 30UL * 1000UL;   // ON -> DIMMED
+constexpr uint32_t DISPLAY_OFF_TIMEOUT_MS  = 180UL * 1000UL;  // DIMMED -> OFF (3 min)
+
+// T-Display S3 wake buttons (active-low, internal pull-ups).
+constexpr uint8_t PIN_BUTTON_1 = 0;
+constexpr uint8_t PIN_BUTTON_2 = 14;

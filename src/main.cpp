@@ -2,6 +2,7 @@
 #include <app_config.h>
 #include <crypto.h>
 #include <display.h>
+#include <display_power.h>
 #include <layout_manager.h>
 #include <lgfx_user_setup.h>
 #include <qr_display.h>
@@ -15,8 +16,9 @@ constexpr uint8_t  QR_BOTTOM_MARGIN = 10;                 // px from the bottom 
 constexpr uint16_t QR_TITLE_Y       = QR_TOP_MARGIN;
 constexpr uint16_t QR_TEXT_Y        = SCREEN_HEIGHT - QR_BOTTOM_MARGIN;
 
-cryptoapp::WifiManager wifi;
-LGFX                   tft;
+cryptoapp::WifiManager  wifi;
+LGFX                    tft;
+cryptoapp::DisplayPower displayPower;
 
 void handleSerialCommand() {
     if (!Serial.available()) {
@@ -52,7 +54,6 @@ void setup() {
     delay(200);
     Serial.println("\n\n[BOOT] ESP32-S3 Crypto Ticker");
 
-    tft.setBrightness(150);
     tft.init();
     tft.setRotation(3);
     tft.fillScreen(TFT_BLACK);
@@ -64,6 +65,10 @@ void setup() {
     Serial.println("[BOOT] WiFi starting");
     bool connected = wifi.begin();
     Serial.printf("[MAIN] wifi.begin() -> %s\n", connected ? "CONNECTED" : "AP_MODE");
+
+    // Power management only runs in normal ticker mode; in AP mode the QR
+    // setup screen must stay permanently lit.
+    displayPower.begin(connected && DISPLAY_POWER_ENABLED);
 
     render_layout(tft);
 
@@ -92,13 +97,26 @@ void loop() {
 
     wifi.handle();
 
+    // Poll the wake buttons and run the display idle state machine
+    // (ON -> DIMMED -> OFF).
+    displayPower.handle();
+
     if (wifi.isConnected()) {
         static constexpr unsigned long UPDATE_INTERVAL = 60UL * 1000UL;  // 1 minute
         // Initialize so the first fetch happens immediately once connected,
         // rather than waiting a full interval after boot.
         static unsigned long last_update = millis() - UPDATE_INTERVAL;
         unsigned long        now         = millis();
-        if ((now - last_update) > UPDATE_INTERVAL) {
+
+        // The screen just woke from dimmed/off: refresh immediately so the
+        // displayed prices are current, then let the normal 60s cycle resume.
+        if (displayPower.consumeWakeEvent()) {
+            last_update = now - UPDATE_INTERVAL;
+        }
+
+        // Skip periodic fetching while the display is fully off; the screen
+        // is invisible and a wake event above forces an immediate refresh.
+        if (!displayPower.isOff() && (now - last_update) > UPDATE_INTERVAL) {
             last_update = now;
             attemptUpdate();
         }
