@@ -8,6 +8,7 @@
 #include <display.h>
 #include <display_cycle.h>
 #include <display_power.h>
+#include <esp_task_wdt.h>
 #include <history.h>
 #include <layout_manager.h>
 #include <lgfx_user_setup.h>
@@ -77,8 +78,7 @@ void renderCurrentCycle() {
     cryptoapp::draw_api_status(apiHealth.status());
 }
 
-// Fetch prices, update the display, and unmount the filesystem once the
-// first successful update has happened. Returns true on success.
+// Fetch prices and update the display. Returns true on success.
 bool attemptUpdate() {
     cryptoapp::PriceData data[MAX_TICKERS];
     if (!cryptoapp::fetch_prices(data, config.count(), config)) {
@@ -97,7 +97,6 @@ bool attemptUpdate() {
     }
 
     renderCurrentCycle();
-    wifi.unmountFileSystem();
     return true;
 }
 
@@ -114,16 +113,40 @@ void fetchHistoryFor(size_t idx) {
 void fetchAllHistory() {
     for (size_t i = 0; i < config.count(); i++) {
         fetchHistoryFor(i);
+        // Feed the boot watchdog between blocking market_chart requests so
+        // a slow link across many tickers cannot falsely trip the rollback
+        // window. Each fetch is individually bounded (~13s max).
+        esp_task_wdt_reset();
     }
 }
 
 // Forward declaration - defined below setup().
 void checkForUpdates();
 
+// Arm the boot-time hardware task watchdog. If the app fails to initialise
+// and never reaches OtaManager::selfTestVerification() within
+// BOOT_SELF_TEST_TIMEOUT_MS, the watchdog forces a reboot and the
+// bootloader (with CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) rolls back to
+// the previously working partition. This is what prevents bricking after
+// an OTA update.
+void armBootWatchdog() {
+    // ESP-IDF v4.4 API: init takes the timeout in SECONDS, not ms.
+    // BOOT_SELF_TEST_TIMEOUT_MS is the 30-second rollback window.
+    esp_task_wdt_init(BOOT_SELF_TEST_TIMEOUT_MS / 1000, true);
+    esp_task_wdt_add(nullptr);  // subscribe the current (loop task) handle
+    Serial.printf("[BOOT] Self-test watchdog armed (%lu ms)\n",
+                  (unsigned long)BOOT_SELF_TEST_TIMEOUT_MS);
+}
+
 void setup() {
     Serial.begin(115200);
     delay(200);
     Serial.println("\n\n[BOOT] ESP32-S3 Crypto Ticker");
+
+    // Arm the boot self-test watchdog first so that every following init
+    // step is covered: if anything hangs, the watchdog reboots into the
+    // previously working partition.
+    armBootWatchdog();
 
     tft.init();
     tft.setRotation(3);
@@ -139,6 +162,9 @@ void setup() {
     Serial.println("[BOOT] WiFi starting");
     bool connected = wifi.begin();
     Serial.printf("[MAIN] wifi.begin() -> %s\n", connected ? "CONNECTED" : "AP_MODE");
+    // Feed the boot watchdog after the blocking WiFi connect (up to ~10s),
+    // so a slow but healthy network can never falsely trigger a rollback.
+    esp_task_wdt_reset();
 
     // Power management only runs in normal ticker mode; in AP mode the QR
     // setup screen must stay permanently lit.
@@ -182,29 +208,31 @@ void setup() {
                 delay(2000);  // allow the network stack to settle
             }
             fetched = attemptUpdate();
+            // Feed the boot watchdog between blocking HTTPS requests. Each
+            // fetch is individually bounded (~13s max), but several in a row
+            // on a slow link could otherwise exceed the 30s rollback window.
+            esp_task_wdt_reset();
         }
         if (fetched) {
             fetchAllHistory();
             renderCurrentCycle();
         }
 
-        // Check for firmware updates once on first connection (separate
-        // from the price fetch above; failures are logged, never shown
-        // on the display). Does not block the ticker if the update server
-        // is unavailable.
-        checkForUpdates();
+        // The OTA check is deferred to loop() (see below) so a slow or
+        // unreachable update server can never block boot, the first
+        // render, or button handling.
     }
+
+    // Boot self-test passed: cancel the pending OTA rollback and disarm the
+    // boot watchdog. If a hung component above had prevented this call, the
+    // watchdog would have rebooted back into the known-good partition.
+    otaManager.selfTestVerification();
 }
 
-// Perform one OTA update check after boot. Runs later (after a delay)
-// so the ticker gets a chance to display fresh data first.
+// Perform one OTA update check. Runs on a fixed hourly schedule, gated on
+// WiFi connectivity, so a slow or unreachable update server can never
+// block the ticker loop.
 void checkForUpdates() {
-    static bool checked = false;
-    if (checked) {
-        return;
-    }
-    checked = true;
-
     Serial.println("[OTA] Checking for firmware updates...");
     cryptoapp::OtaManager::CheckResult result = otaManager.checkForUpdate(OTA_MANIFEST_URL);
 
@@ -238,20 +266,24 @@ void loop() {
         goToDeepSleep();
     }
 
+    // Button navigation is local-only (the cycle derives from NVS config),
+    // so consume events regardless of the network state. This keeps the
+    // buttons responsive while connecting, and prevents a press during
+    // AP mode/reconnect from leaving a stale event that would otherwise
+    // fire once the network comes back.
+    cryptoapp::ButtonEvent btn;
+    if (displayPower.consumeButtonEvent(btn) && wifi.isConnected()) {
+        if (btn == cryptoapp::ButtonEvent::BUTTON_1) {
+            displayCycle.previous();
+        } else if (btn == cryptoapp::ButtonEvent::BUTTON_2) {
+            displayCycle.next();
+        }
+        renderCurrentCycle();
+    }
+
     if (wifi.isConnected()) {
         // Handle the ticker configuration web server.
         configServer.handle();
-
-        // Handle button navigation events.
-        cryptoapp::ButtonEvent btn;
-        if (displayPower.consumeButtonEvent(btn)) {
-            if (btn == cryptoapp::ButtonEvent::BUTTON_1) {
-                displayCycle.previous();
-            } else if (btn == cryptoapp::ButtonEvent::BUTTON_2) {
-                displayCycle.next();
-            }
-            renderCurrentCycle();
-        }
 
         // If the ticker configuration changed (add/remove/move/reset),
         // update the display cycles and history buffers.
@@ -266,6 +298,22 @@ void loop() {
             }
             fetchAllHistory();
             renderCurrentCycle();
+        }
+
+        // Firmware update check, deferred out of setup() and run shortly
+        // after boot inside loop(), so a slow or unreachable update server
+        // can never block boot, the first render, or the button handler.
+        // The check then repeats every OTA_CHECK_INTERVAL_MS (hourly) for
+        // the lifetime of the device.
+        static constexpr unsigned long OTA_FIRST_CHECK_DELAY_MS = 30UL * 1000UL;
+        static unsigned long           otaCheckAt  = millis() + OTA_FIRST_CHECK_DELAY_MS;
+        static bool                    otaCheckDue = false;
+        if (!otaCheckDue && (long)(millis() - otaCheckAt) >= 0) {
+            otaCheckDue = true;
+        }
+        if (otaCheckDue && (long)(millis() - otaCheckAt) >= 0) {
+            otaCheckAt += OTA_CHECK_INTERVAL_MS;
+            checkForUpdates();
         }
 
         static constexpr unsigned long UPDATE_INTERVAL = 60UL * 1000UL;  // 1 minute

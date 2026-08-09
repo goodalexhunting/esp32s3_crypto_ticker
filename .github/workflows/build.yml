@@ -81,13 +81,10 @@ jobs:
             core.setOutput('tag', tag);
             core.setOutput('fw_flags', fwFlags);
 
+      # The web UI is embedded in the firmware (see include/embedded_ui.h),
+      # so no LittleFS filesystem image is built or uploaded any more.
       - name: Build firmware
         run: pio run -e lilygo-t-display-s3
-        env:
-          PLATFORMIO_BUILD_FLAGS: ${{ steps.meta.outputs.fw_flags }}
-
-      - name: Build LittleFS filesystem image
-        run: pio run -e lilygo-t-display-s3 -t buildfs
         env:
           PLATFORMIO_BUILD_FLAGS: ${{ steps.meta.outputs.fw_flags }}
 
@@ -96,14 +93,6 @@ jobs:
           mkdir -p dist
           cp .pio/build/lilygo-t-display-s3/firmware.bin dist/firmware.bin
           cp .pio/build/lilygo-t-display-s3/partitions.bin dist/partitions.bin
-          if [ -f .pio/build/lilygo-t-display-s3/littlefs.bin ]; then
-            cp .pio/build/lilygo-t-display-s3/littlefs.bin dist/littlefs.bin
-          elif [ -f .pio/build/lilygo-t-display-s3/spiffs.bin ]; then
-            cp .pio/build/lilygo-t-display-s3/spiffs.bin dist/littlefs.bin
-          else
-            echo "::error::LittleFS filesystem image not found"
-            exit 1
-          fi
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
@@ -112,7 +101,6 @@ jobs:
           path: |
             dist/firmware.bin
             dist/partitions.bin
-            dist/littlefs.bin
           if-no-files-found: error
           retention-days: 30
 
@@ -120,7 +108,7 @@ jobs:
     # Production release, only for pushes to the prod branch:
     #   - deletes old non-production (nightly) releases so /releases/latest
     #     always points at a stable production release for OTA
-    #   - publishes the firmware + LittleFS image + OTA manifest as assets
+    #   - publishes the firmware + OTA manifest as assets
     if: needs.build.outputs.is_prod == '1'
     needs: build
     runs-on: ubuntu-latest
@@ -190,8 +178,35 @@ jobs:
           files: |
             dist/firmware.bin
             dist/partitions.bin
-            dist/littlefs.bin
             dist/ota_manifest.json
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
+
+  pages:
+    # Deploy the GitHub Pages landing page (site/) on pushes to prod.
+    # Repository setting: Settings > Pages > Source = "GitHub Actions".
+    if: needs.build.outputs.is_prod == '1'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: "github-pages"
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

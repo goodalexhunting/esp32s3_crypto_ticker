@@ -45,18 +45,6 @@ class WifiManager {
     void clearCredentials();
 
     /**
-     * Mount the LittleFS config partition. Safe to call multiple times.
-     * Returns true if the filesystem is available.
-     */
-    bool mountFileSystem();
-
-    /**
-     * Unmount the LittleFS config partition once it is no longer needed
-     * (e.g. after the first successful data fetch). Idempotent.
-     */
-    void unmountFileSystem();
-
-    /**
      * Power down the WiFi radio (e.g. before entering deep sleep).
      * The next begin() re-initialises the radio and reconnects.
      */
@@ -71,7 +59,6 @@ class WifiManager {
     String        _ssid;
     String        _password;
     String        _apName;
-    bool          _fsMounted;
 
     void loadCredentials();
     void saveCredentials(const String& ssid, const String& pass);
