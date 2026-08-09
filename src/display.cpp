@@ -48,8 +48,8 @@ constexpr uint8_t TITLE_TEXT_SIZE = 2;
 constexpr uint8_t BODY_TEXT_SIZE  = 1;
 constexpr uint8_t TABLE_TEXT_SIZE = 2;
 
-// Runtime storage for the latest fetched prices.
-float coinValues[MAX_TICKERS] = {};
+// Runtime storage for the latest fetched prices and 24h changes.
+PriceData coinData[MAX_TICKERS] = {};
 
 void formatPrice(float value, char* buf, size_t len) {
     if (value >= 1000.0f) {
@@ -101,7 +101,7 @@ void drawCoinTable(const Rect& content, const ConfigManager& config) {
         int rowY = table.y + HEADER_H + i * rowH;
 
         char buf[16];
-        formatPrice(coinValues[i], buf, sizeof(buf));
+        formatPrice(coinData[i].price, buf, sizeof(buf));
 
         char priceStr[20];
         snprintf(priceStr, sizeof(priceStr), "$%s", buf);
@@ -143,10 +143,10 @@ void render_layout(LovyanGFX& display) {
     display.print("By github.com/goodalexhunting");
 }
 
-void update_prices_display(const float* values, size_t count, const ConfigManager& config) {
+void update_prices_display(const PriceData* data, size_t count, const ConfigManager& config) {
     size_t n = count < config.count() ? count : config.count();
     for (size_t i = 0; i < n; i++) {
-        coinValues[i] = values[i];
+        coinData[i] = data[i];
     }
 
     // Redraw the full layout (header/footer) to wipe any leftover
@@ -159,7 +159,9 @@ void update_prices_display(const float* values, size_t count, const ConfigManage
     Serial.println("Display updated");
 }
 
-void update_ticker_display(const TickerConfig& ticker, float price, const HistoryBuffer& history) {
+void update_ticker_display(const TickerConfig&  ticker,
+                           const PriceData&     data,
+                           const HistoryBuffer& history) {
     // Start from a clean slate every time so the header/footer etc.
     // are rebuilt and the content area is blanked.
     render_layout(tft);
@@ -184,7 +186,7 @@ void update_ticker_display(const TickerConfig& ticker, float price, const Histor
 
     // --- Current price ---
     char buf[16];
-    formatPrice(price, buf, sizeof(buf));
+    formatPrice(data.price, buf, sizeof(buf));
     char priceStr[24];
     snprintf(priceStr, sizeof(priceStr), "$%s", buf);
 
@@ -193,6 +195,18 @@ void update_ticker_display(const TickerConfig& ticker, float price, const Histor
     tft.setTextSize(DETAIL_PRICE_SIZE);
     tft.setCursor(content.x + content.w - GRAPH_INSET_X, content.y + 4);
     tft.print(priceStr);
+    tft.setTextDatum(TL_DATUM);
+
+    // --- 24h change (below the price, right-aligned) ---
+    char changeStr[16];
+    snprintf(changeStr, sizeof(changeStr), "%+.2f%%", data.change24h);
+
+    uint16_t changeColor = (data.change24h >= 0.0f) ? TFT_GREEN : TFT_RED;
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(changeColor, TFT_BLACK);
+    tft.setTextSize(DETAIL_QUOTE_SIZE);
+    tft.setCursor(content.x + content.w - GRAPH_INSET_X, content.y + 22);
+    tft.print(changeStr);
     tft.setTextDatum(TL_DATUM);
 
     // --- Graph ---
@@ -246,6 +260,28 @@ void update_ticker_display(const TickerConfig& ticker, float price, const Histor
     }
 
     Serial.println("Ticker display updated");
+}
+
+void draw_api_status(ApiStatus status) {
+    uint16_t color;
+    switch (status) {
+        case ApiStatus::HEALTHY:
+            color = TFT_GREEN;
+            break;
+        case ApiStatus::DEGRADED:
+            color = TFT_YELLOW;
+            break;
+        case ApiStatus::UNAVAILABLE:
+        default:
+            color = TFT_RED;
+            break;
+    }
+
+    // Small filled circle in the top-left corner of the header.
+    constexpr uint8_t STATUS_RADIUS = 4;
+    constexpr uint8_t STATUS_X      = 8;
+    constexpr uint8_t STATUS_Y      = 12;
+    tft.fillCircle(STATUS_X, STATUS_Y, STATUS_RADIUS, color);
 }
 
 void show_message(const char* msg) {

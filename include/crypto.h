@@ -8,11 +8,20 @@
 namespace cryptoapp {
 
 /**
- * Fetch and parse current prices from CoinGecko.
- * Writes the parsed values into outValues (one per configured ticker).
+ * Result of a price fetch: current price and 24h percentage change
+ * for each configured ticker.
+ */
+struct PriceData {
+    float price;      // Current price in the ticker's quote currency
+    float change24h;  // 24h percentage change (e.g. 2.31 = +2.31%)
+};
+
+/**
+ * Fetch current prices and 24h percentage changes from CoinGecko.
+ * Writes the parsed values into outData (one per configured ticker).
  * Returns true if the fetch and parse succeeded (HTTP 200 + valid JSON).
  */
-bool fetch_prices(float* outValues, size_t count, const ConfigManager& config);
+bool fetch_prices(PriceData* outData, size_t count, const ConfigManager& config);
 
 /**
  * Fetch historical price data for a single ticker from CoinGecko's

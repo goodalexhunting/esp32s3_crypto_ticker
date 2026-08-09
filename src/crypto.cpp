@@ -30,6 +30,8 @@ void buildUrl(String& url, const ConfigManager& config) {
     } else {
         url += "usd";
     }
+    // Include 24h percentage change in the response.
+    url += "&include_24hr_change=true";
 }
 
 String buildMarketChartUrl(const TickerConfig& ticker) {
@@ -69,7 +71,7 @@ bool httpGetJson(const String& url, JsonDocument& doc) {
 
 }  // namespace
 
-bool fetch_prices(float* outValues, size_t count, const ConfigManager& config) {
+bool fetch_prices(PriceData* outData, size_t count, const ConfigManager& config) {
     String url;
     buildUrl(url, config);
 
@@ -80,8 +82,10 @@ bool fetch_prices(float* outValues, size_t count, const ConfigManager& config) {
 
     size_t n = count < config.count() ? count : config.count();
     for (size_t i = 0; i < n; i++) {
-        const TickerConfig& t = config.get(i);
-        outValues[i]          = doc[t.apiId][t.quote] | 0.0f;
+        const TickerConfig& t    = config.get(i);
+        JsonObject          coin = doc[t.apiId].as<JsonObject>();
+        outData[i].price         = coin[t.quote] | 0.0f;
+        outData[i].change24h     = coin[t.quote + "_24h_change"] | 0.0f;
     }
     return true;
 }

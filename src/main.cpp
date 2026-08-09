@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ESPmDNS.h>
+#include <api_health.h>
 #include <app_config.h>
 #include <config_mgr.h>
 #include <config_server.h>
@@ -12,6 +13,7 @@
 #include <lgfx_user_setup.h>
 #include <qr_display.h>
 #include <wifi_mgr.h>
+
 
 // Vertical layout for the AP-mode QR screen, expressed relative to the
 // configured screen size so it adapts to other displays.
@@ -27,12 +29,13 @@ cryptoapp::ConfigServer  configServer(config);
 LGFX                     tft;
 cryptoapp::DisplayPower  displayPower;
 cryptoapp::DisplayCycle  displayCycle(config);
+cryptoapp::ApiHealth     apiHealth;
 
 // Independent, bounded history buffers for every configured ticker.
 cryptoapp::HistoryBuffer histories[MAX_TICKERS];
 
-// Latest fetched prices (one per configured ticker).
-float latestPrices[MAX_TICKERS] = {};
+// Latest fetched prices and 24h changes (one per configured ticker).
+cryptoapp::PriceData latestData[MAX_TICKERS] = {};
 
 // Put the whole device to sleep: power down the WiFi radio, then enter
 // deep sleep until one of the wake buttons is pressed. A wake restarts
@@ -65,26 +68,31 @@ void handleSerialCommand() {
 // Redraw the display according to the current cycle.
 void renderCurrentCycle() {
     if (displayCycle.isTable()) {
-        cryptoapp::update_prices_display(latestPrices, config.count(), config);
+        cryptoapp::update_prices_display(latestData, config.count(), config);
     } else {
         size_t idx = displayCycle.tickerIndex();
-        cryptoapp::update_ticker_display(config.get(idx), latestPrices[idx], histories[idx]);
+        cryptoapp::update_ticker_display(config.get(idx), latestData[idx], histories[idx]);
     }
+    cryptoapp::draw_api_status(apiHealth.status());
 }
 
 // Fetch prices, update the display, and unmount the filesystem once the
 // first successful update has happened. Returns true on success.
 bool attemptUpdate() {
-    float values[MAX_TICKERS];
-    if (!cryptoapp::fetch_prices(values, config.count(), config)) {
+    cryptoapp::PriceData data[MAX_TICKERS];
+    if (!cryptoapp::fetch_prices(data, config.count(), config)) {
+        apiHealth.recordFailure();
+        cryptoapp::draw_api_status(apiHealth.status());
         cryptoapp::show_message("Fetch failed");
         return false;
     }
 
+    apiHealth.recordSuccess();
+
     for (size_t i = 0; i < config.count(); i++) {
-        latestPrices[i] = values[i];
+        latestData[i] = data[i];
         // Append to the history ring buffer for this ticker.
-        histories[i].push(values[i]);
+        histories[i].push(data[i].price);
     }
 
     renderCurrentCycle();
