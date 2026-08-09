@@ -173,14 +173,25 @@ void setup() {
         // Start the ticker configuration web server.
         configServer.begin();
 
-        // Fetch the initial price data and historical graphs.
-        if (attemptUpdate()) {
+        // Fetch the initial price data and historical graphs. The network
+        // stack may not be fully ready for an immediate HTTPS request right
+        // after WL_CONNECTED, so retry briefly before showing the error.
+        bool fetched = false;
+        for (int attempt = 0; attempt < 3 && !fetched; attempt++) {
+            if (attempt > 0) {
+                delay(2000);  // allow the network stack to settle
+            }
+            fetched = attemptUpdate();
+        }
+        if (fetched) {
             fetchAllHistory();
             renderCurrentCycle();
         }
 
-        // Check for firmware updates once on first connection.
-        // Does not block the ticker if the update server is unavailable.
+        // Check for firmware updates once on first connection (separate
+        // from the price fetch above; failures are logged, never shown
+        // on the display). Does not block the ticker if the update server
+        // is unavailable.
         checkForUpdates();
     }
 }
