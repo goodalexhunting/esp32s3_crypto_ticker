@@ -162,10 +162,10 @@ void WifiManager::startAP() {
 
     String apSuffix = String((uint32_t)ESP.getEfuseMac(), HEX);
     apSuffix.toUpperCase();
-    String apName = "CryptoTicker-" + apSuffix;
+    _apName = "CryptoTicker-" + apSuffix;
 
     WiFi.mode(WIFI_AP);
-    bool ok = WiFi.softAP(apName.c_str(), nullptr, DEFAULT_AP_CHANNEL, 0, MAX_AP_CLIENTS);
+    bool ok = WiFi.softAP(_apName.c_str(), nullptr, DEFAULT_AP_CHANNEL, 0, MAX_AP_CLIENTS);
     if (!ok) {
         Serial.println("[WiFi] AP setup failed");
         return;
@@ -177,7 +177,7 @@ void WifiManager::startAP() {
     _apStartTime = millis();
     _state       = State::AP_MODE;
     Serial.printf(
-        "[WiFi] AP mode: '%s' at http://%s\n", apName.c_str(), WiFi.softAPIP().toString().c_str());
+        "[WiFi] AP mode: '%s' at http://%s\n", _apName.c_str(), WiFi.softAPIP().toString().c_str());
 }
 
 void WifiManager::stopAP() {
@@ -211,6 +211,20 @@ void WifiManager::saveCredentials(const String& ssid, const String& pass) {
     prefs.putString(NVS_KEY_SSID, ssid.substring(0, CRED_MAX_SSID_LEN));
     prefs.putString(NVS_KEY_PASS, pass.substring(0, CRED_MAX_PASS_LEN));
     prefs.end();
+}
+
+void WifiManager::clearCredentials() {
+    Serial.println("[WiFi] Clearing stored credentials");
+    Preferences prefs;
+    if (prefs.begin(NVS_NAMESPACE, false)) {
+        prefs.remove(NVS_KEY_SSID);
+        prefs.remove(NVS_KEY_PASS);
+        prefs.end();
+    }
+    _ssid     = "";
+    _password = "";
+    WiFi.disconnect(true, true);
+    Serial.println("[WiFi] Credentials cleared");
 }
 
 // ---------------------------------------------------------------------------

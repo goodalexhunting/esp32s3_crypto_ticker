@@ -129,6 +129,13 @@ void render_layout(LovyanGFX& display) {
 
 bool update_crypto() {
     if (WiFi.status() != WL_CONNECTED) {
+        Rect content = contentArea();
+        tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
+        tft.setTextColor(TFT_RED, TFT_BLACK);
+        tft.setTextSize(1);
+        tft.setTextDatum(TL_DATUM);
+        tft.setCursor(content.x + 8, content.y + 8);
+        tft.print("WiFi not connected");
         return false;
     }
 
@@ -172,5 +179,13 @@ bool update_crypto() {
     }
 
     http.end();
+
+    Rect content = contentArea();
+    tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.setTextSize(1);
+    tft.setTextDatum(TL_DATUM);
+    tft.setCursor(content.x + 8, content.y + 8);
+    tft.print("Fetch failed");
     return false;
 }

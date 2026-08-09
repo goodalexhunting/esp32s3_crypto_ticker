@@ -2,10 +2,26 @@
 #include <crypto.h>
 #include <layout_manager.h>
 #include <lgfx_user_setup.h>
+#include <qr_display.h>
 #include <wifi_mgr.h>
 
 cryptoapp::WifiManager wifi;
 LGFX                   tft;
+
+void handleSerialCommand() {
+    if (!Serial.available()) {
+        return;
+    }
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+
+    if (command == "clearwifi") {
+        Serial.println("[CMD] Clearing WiFi credentials...");
+        wifi.clearCredentials();
+        delay(200);
+        ESP.restart();
+    }
+}
 
 void setup() {
     Serial.begin(115200);
@@ -23,28 +39,23 @@ void setup() {
 
     Serial.println("[BOOT] WiFi starting");
     bool connected = wifi.begin();
+    Serial.printf("[MAIN] wifi.begin() -> %s\n", connected ? "CONNECTED" : "AP_MODE");
 
     render_layout(tft);
 
     if (!connected) {
-        // AP mode setup page shown on display
+        // AP mode: show a QR code pointing at the captive-portal landing page
         tft.fillScreen(TFT_BLACK);
-        tft.setTextSize(2);
-        tft.setCursor(10, 20);
-        tft.println("WiFi not configured");
-        tft.println();
-        tft.println("Connect phone to AP:");
-        tft.setTextColor(TFT_CYAN);
-        tft.println(" CryptoTicker-XXXX");
+        tft.setTextDatum(middle_center);
         tft.setTextColor(TFT_WHITE);
-        tft.println();
-        tft.println("Then visit:");
-        tft.setTextColor(TFT_CYAN);
-        tft.println(" http://192.168.4.1");
+        tft.setTextSize(1);
+        tft.drawString("Scan QR to configure WiFi", 160, 10);
+
+        cryptoapp::drawQrCode(tft, "http://192.168.4.1", 160, 90, 4, false);
+
         tft.setTextColor(TFT_WHITE);
-        tft.println();
-        tft.println("Setup WiFi and the");
-        tft.println("ticker will start.");
+        tft.drawString("Join AP: " + wifi.getAPName(), 160, 160);
+        tft.setTextDatum(top_left);
     } else {
         if (update_crypto()) {
             wifi.unmountFileSystem();
@@ -53,6 +64,8 @@ void setup() {
 }
 
 void loop() {
+    handleSerialCommand();
+
     wifi.handle();
 
     if (wifi.isConnected()) {

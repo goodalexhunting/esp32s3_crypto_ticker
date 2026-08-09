@@ -33,8 +33,16 @@ class WifiManager {
         return _state == State::CONNECTED;
     }
 
+    /** Name of the soft-AP SSID when in AP mode (e.g. "CryptoTicker-XXXX"). */
+    const String& getAPName() const {
+        return _apName;
+    }
+
     /** Force AP mode (e.g. from a button long-press). */
     void forceAPMode();
+
+    /** Erase stored WiFi credentials so the device will boot into AP mode. */
+    void clearCredentials();
 
     /**
      * Mount the LittleFS config partition. Safe to call multiple times.
@@ -56,11 +64,11 @@ class WifiManager {
     unsigned long _lastReconnectAttempt;
     String        _ssid;
     String        _password;
+    String        _apName;
     bool          _fsMounted;
 
     void loadCredentials();
     void saveCredentials(const String& ssid, const String& pass);
-    void clearCredentials();
     bool tryConnect(const String& ssid, const String& pass, int timeoutMs);
     void startAP();
     void stopAP();
