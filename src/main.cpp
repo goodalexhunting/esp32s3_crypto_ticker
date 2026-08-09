@@ -11,9 +11,9 @@
 #include <history.h>
 #include <layout_manager.h>
 #include <lgfx_user_setup.h>
+#include <ota_mgr.h>
 #include <qr_display.h>
 #include <wifi_mgr.h>
-
 
 // Vertical layout for the AP-mode QR screen, expressed relative to the
 // configured screen size so it adapts to other displays.
@@ -30,6 +30,7 @@ LGFX                     tft;
 cryptoapp::DisplayPower  displayPower;
 cryptoapp::DisplayCycle  displayCycle(config);
 cryptoapp::ApiHealth     apiHealth;
+cryptoapp::OtaManager    otaManager;
 
 // Independent, bounded history buffers for every configured ticker.
 cryptoapp::HistoryBuffer histories[MAX_TICKERS];
@@ -116,6 +117,9 @@ void fetchAllHistory() {
     }
 }
 
+// Forward declaration - defined below setup().
+void checkForUpdates();
+
 void setup() {
     Serial.begin(115200);
     delay(200);
@@ -174,6 +178,37 @@ void setup() {
             fetchAllHistory();
             renderCurrentCycle();
         }
+
+        // Check for firmware updates once on first connection.
+        // Does not block the ticker if the update server is unavailable.
+        checkForUpdates();
+    }
+}
+
+// Perform one OTA update check after boot. Runs later (after a delay)
+// so the ticker gets a chance to display fresh data first.
+void checkForUpdates() {
+    static bool checked = false;
+    if (checked) {
+        return;
+    }
+    checked = true;
+
+    Serial.println("[OTA] Checking for firmware updates...");
+    cryptoapp::OtaManager::CheckResult result = otaManager.checkForUpdate(OTA_MANIFEST_URL);
+
+    switch (result) {
+        case cryptoapp::OtaManager::CheckResult::UP_TO_DATE:
+            Serial.println("[OTA] No update needed");
+            break;
+        case cryptoapp::OtaManager::CheckResult::UPDATE_AVAILABLE:
+            Serial.println("[OTA] New firmware available - installing");
+            otaManager.performUpdate(otaManager.firmwareUrl(), otaManager.sha256());
+            break;
+        case cryptoapp::OtaManager::CheckResult::ERROR:
+        default:
+            Serial.println("[OTA] Update check failed - continuing with current firmware");
+            break;
     }
 }
 

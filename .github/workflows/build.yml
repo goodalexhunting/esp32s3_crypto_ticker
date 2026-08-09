@@ -1,0 +1,86 @@
+name: PlatformIO Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -e lilygo-t-display-s3
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-lilygo-t-display-s3
+          path: |
+            .pio/build/lilygo-t-display-s3/firmware.bin
+            .pio/build/lilygo-t-display-s3/partitions.bin
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    # Publish a GitHub Release with the firmware + manifest when a
+    # vX.Y.Z tag is pushed.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-lilygo-t-display-s3
+          path: dist
+
+      - name: Compute SHA-256
+        id: sha256
+        run: |
+          echo "hash=$(sha256sum dist/firmware.bin | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Determine version
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest
+        run: |
+          cat > dist/ota_manifest.json << EOF
+          {
+            "version": "${{ steps.version.outputs.tag }}",
+            "firmware_url": "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/firmware.bin",
+            "sha256": "${{ steps.sha256.outputs.hash }}"
+          }
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Firmware ${{ steps.version.outputs.tag }}
+          files: |
+            dist/firmware.bin
+            dist/partitions.bin
+            dist/ota_manifest.json
+          draft: false
+          prerelease: false

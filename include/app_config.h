@@ -19,6 +19,24 @@ constexpr uint16_t SCREEN_WIDTH  = 320;
 constexpr uint16_t SCREEN_HEIGHT = 170;
 
 // ---------------------------------------------------------------------------
+// Firmware version
+// ---------------------------------------------------------------------------
+// Single authoritative location for the firmware version. The OTA update
+// mechanism compares this against the remote manifest version.
+constexpr char FW_VERSION[] = "1.0.0";
+
+// ---------------------------------------------------------------------------
+// OTA updates
+// ---------------------------------------------------------------------------
+// URL of the OTA version manifest. The device fetches this, compares the
+// remote version to the installed one, and downloads the firmware only
+// when a newer version exists. The manifest is hosted as a GitHub Release
+// asset (see .github/workflows/build.yml).
+constexpr char OTA_MANIFEST_URL[] =
+    "https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest/download/"
+    "ota_manifest.json";
+
+// ---------------------------------------------------------------------------
 // mDNS hostname
 // ---------------------------------------------------------------------------
 // The device advertises itself as <MDNS_HOSTNAME>.local on the local network.
