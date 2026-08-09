@@ -1,1 +1,6 @@
+.pio
 arduino/libraries/*
+.git
+.DS_Store
+*.bin
+.vscode
