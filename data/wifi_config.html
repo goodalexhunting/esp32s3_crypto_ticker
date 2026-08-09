@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CryptoTicker WiFi Setup</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #121417;
+            color: #e8eaed;
+            max-width: 480px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            text-align: center;
+        }
+
+        .card {
+            background: #1c1f24;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid #2a2e35;
+        }
+
+        h2 {
+            font-size: 1rem;
+            margin: 0 0 12px;
+            color: #9aa0a6;
+            font-weight: 600;
+        }
+
+        .net {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border: 1px solid #2a2e35;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            background: #23272e;
+        }
+
+        .net:hover {
+            border-color: #4d90f0;
+        }
+
+        .net.selected {
+            border-color: #4d90f0;
+            background: #1b2838;
+        }
+
+        .ssid {
+            font-weight: 500;
+            word-break: break-all;
+        }
+
+        .lock {
+            color: #9aa0a6;
+        }
+
+        input[type="password"],
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #2a2e35;
+            background: #23272e;
+            color: #e8eaed;
+            font-size: 1rem;
+            margin: 4px 0 12px;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            background: #4d90f0;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #3b7ae0;
+        }
+
+        button:disabled {
+            background: #3a4150;
+            cursor: not-allowed;
+        }
+
+        #status {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 0.9rem;
+            min-height: 1.2em;
+        }
+
+        #refresh {
+            background: none;
+            border: 1px solid #2a2e35;
+            color: #9aa0a6;
+            padding: 8px;
+            margin-top: 8px;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>CryptoTicker WiFi Setup</h1>
+
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>Available Networks</h2>
+            <button id="refresh" onclick="loadNetworks()">Refresh</button>
+        </div>
+        <div id="networks">
+            <p>Scanning...</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Connect</h2>
+        <input type="text" id="ssid" placeholder="Network name" autocomplete="off">
+        <input type="password" id="pass" placeholder="Password" autocomplete="off">
+        <button id="connectBtn" onclick="submitConnect()">Connect</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        let nets = [];
+        async function loadNetworks() {
+            const el = document.getElementById('networks');
+            el.innerHTML = '<p>Scanning...</p>';
+            try {
+                const r = await fetch('/scan');
+                nets = await r.json();
+                if (!nets.length) { el.innerHTML = '<p>No networks found.</p>'; return; }
+                el.innerHTML = nets.map((n, i) =>
+                    `<div class="net" onclick="selectNet(${i})">
+         <span class="ssid"></span>
+         <span class="lock">${n.encrypt ? '\u{1F512}' : ''}</span>
+       </div>`
+                ).join('');
+                document.querySelectorAll('.ssid').forEach((s, i) => s.textContent = nets[i].ssid);
+            } catch (e) { el.innerHTML = '<p>Scan failed.</p>'; }
+        }
+        function selectNet(i) {
+            document.querySelectorAll('.net').forEach(n => n.classList.remove('selected'));
+            document.querySelectorAll('.net')[i].classList.add('selected');
+            document.getElementById('ssid').value = nets[i].ssid;
+        }
+        async function submitConnect() {
+            const ssid = document.getElementById('ssid').value.trim();
+            const pass = document.getElementById('pass').value;
+            if (!ssid) { document.getElementById('status').textContent = 'Enter a network name.'; return; }
+            const btn = document.getElementById('connectBtn');
+            const status = document.getElementById('status');
+            btn.disabled = true;
+            status.textContent = 'Connecting...';
+            try {
+                const r = await fetch('/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass)
+                });
+                const t = await r.text();
+                status.textContent = t === 'OK'
+                    ? 'Connected! The device will join your network shortly.'
+                    : 'Failed: ' + t;
+            } catch (e) {
+                status.textContent = 'Request failed.';
+            }
+            setTimeout(() => { btn.disabled = false; }, 3000);
+        }
+        loadNetworks();
+    </script>
+</body>
+
+</html>
