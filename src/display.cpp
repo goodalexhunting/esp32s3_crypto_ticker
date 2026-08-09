@@ -170,17 +170,21 @@ void update_ticker_display(const TickerConfig&  ticker,
     Rect          content = contentArea();
     tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
 
-    // --- Label (brand colour) ---
+    // --- Ticker pair (label + quote) on one line ---
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(ticker.color, TFT_BLACK);
     tft.setTextSize(DETAIL_LABEL_SIZE);
-    tft.setCursor(content.x + GRAPH_INSET_X, content.y + 4);
+    int pairX = content.x + GRAPH_INSET_X;
+    int pairY = content.y + 4;
+    tft.setCursor(pairX, pairY);
     tft.print(ticker.label);
 
-    // --- Quote currency (small, dimmed) ---
+    // Quote currency immediately after the label (small, dimmed),
+    // vertically centred against the size-2 label text.
+    int labelW = tft.textWidth(ticker.label);
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
     tft.setTextSize(DETAIL_QUOTE_SIZE);
-    tft.setCursor(content.x + GRAPH_INSET_X + 40, content.y + 12);
+    tft.setCursor(pairX + labelW + 6, content.y + 8);
     tft.print("/ ");
     tft.print(ticker.quote);
 
@@ -190,23 +194,27 @@ void update_ticker_display(const TickerConfig&  ticker,
     char priceStr[24];
     snprintf(priceStr, sizeof(priceStr), "$%s", buf);
 
-    tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextSize(DETAIL_PRICE_SIZE);
-    tft.setCursor(content.x + content.w - GRAPH_INSET_X, content.y + 4);
-    tft.print(priceStr);
-    tft.setTextDatum(TL_DATUM);
-
-    // --- 24h change (below the price, right-aligned) ---
+    // --- 24h change (right-aligned, same row as the price) ---
     char changeStr[16];
     snprintf(changeStr, sizeof(changeStr), "%+.2f%%", data.change24h);
 
     uint16_t changeColor = (data.change24h >= 0.0f) ? TFT_GREEN : TFT_RED;
+    int      rightX      = content.x + content.w - GRAPH_INSET_X;
+    int      rightY      = content.y + 8;
+
     tft.setTextDatum(TR_DATUM);
     tft.setTextColor(changeColor, TFT_BLACK);
     tft.setTextSize(DETAIL_QUOTE_SIZE);
-    tft.setCursor(content.x + content.w - GRAPH_INSET_X, content.y + 22);
+    tft.setCursor(rightX, rightY);
     tft.print(changeStr);
+
+    // Price right-aligned to the left of the change with a small gap,
+    // so both stay on the same row.
+    int changeW = tft.textWidth(changeStr);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(DETAIL_PRICE_SIZE);
+    tft.setCursor(rightX - changeW - 8, content.y + 4);
+    tft.print(priceStr);
     tft.setTextDatum(TL_DATUM);
 
     // --- Graph ---
