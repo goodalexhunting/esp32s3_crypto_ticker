@@ -449,7 +449,7 @@ Document:
 
 ---
 
-# Task 4 — OTA Firmware Updates
+# Task 4 — OTA Firmware Updates ✅
 
 ## Objective
 
@@ -610,6 +610,32 @@ Document:
 * Firmware verification mechanism.
 * How releases are generated.
 * How the device determines whether an update is available.
+
+### Implementation Notes
+
+* **GitHub Actions workflow**: `.github/workflows/build.yml` runs on push to `main`, PRs to `main`, tags `v*`, and manual dispatch. The `build` job checks out the repo, sets up Python 3.11, installs PlatformIO, runs `pio run -e lilygo-t-display-s3`, and uploads `firmware.bin` + `partitions.bin` as build artifacts. The `release` job (triggered only by `v*` tags) computes SHA-256 of the firmware, generates `ota_manifest.json`, and publishes a GitHub Release with all three files.
+* **PlatformIO build environment**: `lilygo-t-display-s3` (ESPRESSIF32 platform 7.0.1, Arduino framework, LovyanGFX, ArduinoJson, QRCode).
+* **Firmware versioning strategy**: Single authoritative `FW_VERSION` constant in `include/app_config.h` (currently `"1.0.0"`). The device compares this against the manifest version. GitHub release tags use `vX.Y.Z` format matching the version.
+* **OTA partition configuration**: Custom `partitions.csv` creates two OTA app slots:
+  * `app0` (ota_0) at 0x10000, 0x1F0000 (~1.94 MB)
+  * `app1` (ota_1) at 0x200000, 0x1F0000
+  * `otadata`, `nvs`, and a small `spiffs` (LittleFS) partition.
+  * The ESP32 boots from the current slot and updates the unused one, so a failed update leaves the existing firmware operational.
+* **Manifest format**: `ota_manifest.json` hosted as a GitHub Release asset:
+  ```json
+  {
+    "version": "1.1.0",
+    "firmware_url": "https://github.com/{owner}/{repo}/releases/download/v1.1.0/firmware.bin",
+    "sha256": "<lowercase hex sha256 of firmware.bin>"
+  }
+  ```
+* **Firmware verification mechanism**: The device streams the firmware download and computes SHA-256 using mbedTLS while writing to flash. The computed hash is compared against the manifest's `sha256` before `Update.end()` is called. Any mismatch aborts the update, leaving the previous firmware intact.
+* **How releases are generated**: Pushing a `vX.Y.Z` tag to GitHub triggers the `release` job. It downloads the build artifact, computes the SHA-256, creates the manifest, and publishes a GitHub Release with `firmware.bin`, `partitions.bin`, and `ota_manifest.json`.
+* **How the device determines whether an update is available**: On first successful Wi-Fi connect, `OtaManager::checkForUpdate()` fetches `OTA_MANIFEST_URL` (the latest release's `ota_manifest.json`). It parses the JSON, compares the remote version against `FW_VERSION` using semantic version comparison, and only installs when the remote is newer. The check runs once per boot and never blocks the ticker - failures are logged and normal operation continues.
+* **Update policy**: The device checks for updates **once per boot** after the first successful Wi-Fi connection. It does not re-check in a loop. If the update server is unavailable, the device continues normal ticker operation.
+* **HTTPS**: The firmware downloads use HTTPS via `HTTPClient` with the ESP32's built-in certificate bundle (default `setInsecure` is NOT used; the standard root CA bundle validates GitHub's certificates).
+* **NVS persistence**: Ticker config, Wi-Fi credentials, and display settings are stored in NVS and survive OTA updates since the `nvs` partition is preserved.
+* **Safety**: `Update.end()` is only called after the full download completes and the SHA-256 matches. A failed/incomplete download never flashes partial firmware. The two-app-slot partition table ensures the bootloader can always fall back to the previous working image.
 
 ---
 
