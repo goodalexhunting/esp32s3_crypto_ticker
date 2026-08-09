@@ -20,6 +20,19 @@ cryptoapp::WifiManager  wifi;
 LGFX                    tft;
 cryptoapp::DisplayPower displayPower;
 
+// Put the whole device to sleep: power down the WiFi radio, then enter
+// deep sleep until one of the wake buttons is pressed. A wake restarts
+// the ESP32, so setup() reconnects WiFi and refreshes prices.
+void goToDeepSleep() {
+    Serial.println("[SLEEP] Display OFF - entering deep sleep");
+    Serial.flush();
+
+    wifi.sleep();
+
+    esp_sleep_enable_ext1_wakeup(DEEP_SLEEP_WAKEUP_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
+    esp_deep_sleep_start();  // does not return
+}
+
 void handleSerialCommand() {
     if (!Serial.available()) {
         return;
@@ -100,6 +113,12 @@ void loop() {
     // Poll the wake buttons and run the display idle state machine
     // (ON -> DIMMED -> OFF).
     displayPower.handle();
+
+    // When the display turns fully off, sleep the WiFi radio and the
+    // main loop until a wake button is pressed.
+    if (displayPower.consumeSleepEvent() && DEVICE_DEEP_SLEEP_ENABLED) {
+        goToDeepSleep();
+    }
 
     if (wifi.isConnected()) {
         static constexpr unsigned long UPDATE_INTERVAL = 60UL * 1000UL;  // 1 minute

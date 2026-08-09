@@ -58,3 +58,16 @@ constexpr uint32_t DISPLAY_OFF_TIMEOUT_MS  = 180UL * 1000UL;  // DIMMED -> OFF (
 // T-Display S3 wake buttons (active-low, internal pull-ups).
 constexpr uint8_t PIN_BUTTON_1 = 0;
 constexpr uint8_t PIN_BUTTON_2 = 14;
+
+// ---------------------------------------------------------------------------
+// Device deep sleep
+// ---------------------------------------------------------------------------
+// When the display turns fully OFF, the whole device enters deep sleep:
+// the WiFi radio and the main loop are powered down to minimise draw.
+// A press of either wake button reboots the ESP32, which reconnects to
+// WiFi and refreshes the crypto prices via the normal boot path.
+constexpr bool DEVICE_DEEP_SLEEP_ENABLED = true;
+
+// EXT1 wake mask for the wake buttons (both are RTC GPIOs on the S3).
+// GPIO0 and GPIO14, active-low with internal pull-ups.
+constexpr uint64_t DEEP_SLEEP_WAKEUP_MASK = (1ULL << PIN_BUTTON_1) | (1ULL << PIN_BUTTON_2);

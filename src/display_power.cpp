@@ -78,6 +78,12 @@ bool DisplayPower::consumeWakeEvent() {
     return pending;
 }
 
+bool DisplayPower::consumeSleepEvent() {
+    const bool pending = _sleepPending;
+    _sleepPending      = false;
+    return pending;
+}
+
 void DisplayPower::setState(DisplayPowerState newState) {
     if (_state == newState && newState != DisplayPowerState::ON) {
         return;
@@ -85,6 +91,13 @@ void DisplayPower::setState(DisplayPowerState newState) {
 
     _state            = newState;
     _stateChangedAtMs = millis();
+
+    // Any transition away from OFF cancels a pending deep-sleep request,
+    // so a button press that lands on the same cycle as the OFF timeout
+    // always wins.
+    if (newState != DisplayPowerState::OFF) {
+        _sleepPending = false;
+    }
 
     switch (newState) {
         case DisplayPowerState::ON:
@@ -99,6 +112,7 @@ void DisplayPower::setState(DisplayPowerState newState) {
         case DisplayPowerState::OFF:
             tft.setBrightness(0);
             tft.sleep();
+            _sleepPending = true;
             Serial.println("[POWER] Display OFF");
             break;
     }

@@ -56,6 +56,12 @@ class WifiManager {
      */
     void unmountFileSystem();
 
+    /**
+     * Power down the WiFi radio (e.g. before entering deep sleep).
+     * The next begin() re-initialises the radio and reconnects.
+     */
+    void sleep();
+
    private:
     State         _state;
     WebServer     _server;

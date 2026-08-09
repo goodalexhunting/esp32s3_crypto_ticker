@@ -113,6 +113,16 @@ void WifiManager::unmountFileSystem() {
     Serial.println("[WiFi] LittleFS unmounted");
 }
 
+void WifiManager::sleep() {
+    if (_state == State::AP_MODE) {
+        stopAP();
+    }
+    WiFi.disconnect();
+    WiFi.mode(WIFI_OFF);
+    _state = State::DISCONNECTED;
+    Serial.println("[WiFi] Radio powered down for deep sleep");
+}
+
 // ---------------------------------------------------------------------------
 // Connection helpers
 // ---------------------------------------------------------------------------

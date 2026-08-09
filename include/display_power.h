@@ -45,6 +45,12 @@ class DisplayPower {
      */
     bool consumeWakeEvent();
 
+    /**
+     * Returns true exactly once when the display transitions to OFF,
+     * so the caller can put the whole device into deep sleep.
+     */
+    bool consumeSleepEvent();
+
     bool isOff() const {
         return _state == DisplayPowerState::OFF;
     }
@@ -61,9 +67,10 @@ class DisplayPower {
     void setState(DisplayPowerState newState);
     void pollButtons(unsigned long now);
 
-    DisplayPowerState _state       = DisplayPowerState::ON;
-    bool              _enabled     = false;
-    bool              _wakePending = false;
+    DisplayPowerState _state        = DisplayPowerState::ON;
+    bool              _enabled      = false;
+    bool              _wakePending  = false;
+    bool              _sleepPending = false;
 
     // Button debounce state
     bool          _pressEvent   = false;
