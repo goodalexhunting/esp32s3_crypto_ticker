@@ -1,38 +1,138 @@
 # Crypto Ticker
 
-Crypto Ticker on Lilygo T-Display-S3.
+Self-contained networked crypto ticker for the **LilyGO T-Display-S3** (ESP32-S3).
 
-Forked from https://github.com/osbock/AssetTicker
+Forked from [osbock/AssetTicker](https://github.com/osbock/AssetTicker).
+
+The device shows live cryptocurrency prices from the [CoinGecko API](https://www.coingecko.com/), can be configured over Wi-Fi from your phone or browser, keeps a historical graph for each coin, and can update its own firmware over the air (OTA) from GitHub Releases.
 
 ## Features
 
-- Displays live USD prices for **BTC**, **SOL** and **SUI** (CoinGecko API).
+### Market data (CoinGecko)
+
+- Live prices for **BTC**, **SOL** and **SUI** out of the box — add/remove/reorder tickers freely (up to 8).
 - Brand-colored ticker labels: `$BTC` (yellow), `$SOL` (purple), `$SUI` (cyan).
 - Smart price formatting — up to 3 decimal places (e.g. `$67,234`, `$150.45`, `$0.001`).
-- **No hardcoded WiFi credentials.** On first boot the device starts an access point with a captive portal so you can configure WiFi from your phone.
+- **24h percentage change** for every ticker, sourced from CoinGecko market data (`include_24hr_change`). Positive changes are shown green, negative red.
+
+### Network web configuration (Task 1)
+
+- mDNS: the device advertises itself as **`http://crypto-ticker.local`** on your network.
+- A lightweight web page (served from LittleFS) to **view, add, remove, reorder and reset** the configured tickers.
+- Clean JSON API (`/api/tickers`) behind the web UI — HTTP handlers only talk to the `ConfigManager`, never to the display directly.
+- Configuration persists across reboot in **NVS** (`Preferences`), so nothing is hard-coded into the display logic.
+- Each ticker stores its display label, CoinGecko API ID, quote currency and optional brand colour, so a symbol like `BTC` is never assumed to identify an asset by itself.
+
+### Ticker cycling and historical graphs (Task 2)
+
+- The display cycles dynamically from the configuration: **view 0 = the prices table**, views 1..N = one detailed view per configured ticker.
+- Navigate with the device buttons (debounced, wraps around in both directions):
+  - **GPIO0** = previous view
+  - **GPIO14** = next view
+- Each ticker detail view shows the current price, the 24h change, and a **7-day historical graph** (144 points, 5-minute CoinGecko `market_chart` data downsampled into fixed-size ring buffers — no heap allocation).
+- History is fetched on boot and on config changes; every successful price fetch appends to the buffer, so the graph keeps growing without extra API calls.
+
+### API/network status indicator (Task 3)
+
+- A small indicator in the **top-left corner** reflects the health of the market-data API using a rolling history of the last 8 requests:
+  - **Green** — API healthy (recent requests succeeding)
+  - **Yellow** — degraded (some recent requests failing)
+  - **Red** — unavailable (all recent requests failing)
+- On API failure the device **keeps showing the last known price, 24h change and graph** — the display is never blanked. The indicator recovers gradually as requests succeed again.
+
+### OTA firmware updates (Task 4)
+
+- The device checks a version manifest once per boot (after the first Wi-Fi connection) and installs a newer firmware **without a USB cable**.
+- Downloads over **HTTPS** (validated with the ESP32 certificate bundle), streams the image while computing **SHA-256**, and only flashes when the checksum matches the manifest — a failed/incomplete download leaves the previous firmware untouched.
+- An **A/B dual-slot partition table** means the bootloader can always fall back to the last working image.
+
+### Display power management
+
+- The backlight dims after an idle period and the panel sleeps (then the whole device enters **deep sleep**) to prevent burn-in. Any button press wakes it and forces an immediate price refresh.
 
 ## First-Time Setup (WiFi)
 
-1. Power on the device. If no WiFi is configured, it starts an access point named `CryptoTicker-XXXX`.
-2. On your phone, join that network.
+1. Power on the device. If no WiFi is configured (or the saved network is unreachable), it starts an open access point named `CryptoTicker-XXXX`.
+2. On your phone, join that network — the display shows a **QR code** you can scan to join instantly.
 3. Open a browser — the captive portal should redirect you to `http://192.168.4.1`.
 4. Pick your network from the list (or type the SSID), enter the password, and tap **Connect**.
-5. The device saves the credentials to flash and joins your network. The ticker starts automatically.
+5. The device saves the credentials to flash, joins your network, and the ticker starts.
 
-> To reconfigure WiFi later, hold the device's button on boot to force AP mode (if wired up), or the AP will also re-appear automatically if the saved network is unreachable.
+> To reconfigure WiFi later: clear the saved credentials with the serial command `clearwifi` (the device reboots into AP mode), or the AP will re-appear automatically if the saved network becomes unreachable.
+
+## Configuring Tickers
+
+While connected to your network, open **`http://crypto-ticker.local`** (or the device IP) in any desktop or mobile browser.
+
+- See the currently configured tickers.
+- Add a ticker: display label, CoinGecko API ID (e.g. `bitcoin`, `solana`, `sui`), quote currency (e.g. `usd`, `usdc`), optional colour.
+- Remove, reorder, or reset to the default tickers.
+- Changes are saved to NVS and applied to the display immediately.
+
+API endpoints: `GET /` (page), `GET /api/tickers`, `POST /api/tickers` (add), `DELETE /api/tickers?id=N` (remove), `POST /api/tickers/move` (reorder), `POST /api/tickers/reset`.
+
+## OTA Updates and the Release Pipeline
+
+### How the device updates
+
+1. On the first successful Wi-Fi connection it fetches the version manifest:
+   `https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest/download/ota_manifest.json`
+2. It compares the manifest version against the installed `FW_VERSION` (single authoritative constant in `include/app_config.h`, currently `1.0.0`).
+3. If the remote is newer, it downloads `firmware.bin`, verifies the SHA-256 checksum, flashes the inactive OTA slot, and reboots.
+4. The check runs **once per boot** and never blocks the ticker — if the update server is unavailable the device just continues normal operation.
+
+### How releases are generated (GitHub Actions)
+
+`.github/workflows/build.yml` builds the firmware with PlatformIO on every push/PR and then:
+
+- **Every push to `main`** → a **nightly release** tagged `nightly-<short-sha>-<run>` is auto-published, with the manifest version set to the current `FW_VERSION`.
+- **Pushing a `vX.Y.Z` tag** → a versioned release is published; the tag must match `FW_VERSION` (e.g. `v1.1.0` requires `FW_VERSION = "1.1.0"`), otherwise the workflow fails to prevent the device re-installing the same firmware forever.
+
+Each release carries three assets: `firmware.bin`, `partitions.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256).
+
+### Rolling out a firmware update
+
+Just bump `FW_VERSION` in `include/app_config.h` and push to `main` — the nightly release advertises the new version and devices install it on their next boot. For a clean semantic version, push a matching tag instead (e.g. `git tag v1.1.0 && git push origin v1.1.0`).
 
 ## Building
 
-Requires [PlatformIO](https://platformio.org/).
+Requires [PlatformIO](https://platformio.org/). Environment: `lilygo-t-display-s3` (espressif32, Arduino framework).
 
 ```sh
+# Build firmware
 pio run -e lilygo-t-display-s3
+
+# Upload firmware to the device
+pio run -e lilygo-t-display-s3 -t upload
+
+# Build and upload the LittleFS filesystem image (web pages in data/)
+pio run -e lilygo-t-display-s3 -t buildfs
+pio run -e lilygo-t-display-s3 -t uploadfs
 ```
+
+> The web configuration pages (`data/wifi_config.html`, `data/ticker_config.html`) live in the LittleFS partition. Upload the filesystem image (`uploadfs`) if the pages are missing or outdated.
 
 ## Project Layout
 
-- `src/main.cpp` — boot flow, WiFi handling, main loop.
-- `src/wifi_mgr.cpp` — WiFi manager: NVS credentials, AP mode + captive portal, reconnection.
-- `src/crypto.cpp` — CoinGecko fetch, JSON parsing, display rendering.
+- `src/main.cpp` — boot flow, WiFi/config wiring, main loop, OTA check trigger.
+- `src/wifi_mgr.cpp` — WiFi manager: NVS credentials, AP mode + captive portal + QR, mDNS, reconnection, LittleFS mount.
+- `src/config_mgr.cpp` — ticker configuration list, NVS persistence (`ticker_cfg`), revision tracking.
+- `src/config_server.cpp` — HTTP configuration page + JSON API (`ConfigServer`).
+- `src/crypto.cpp` — CoinGecko fetches: current prices, 24h changes, historical `market_chart`.
+- `src/history.cpp` — fixed-size price ring buffers (144 points/ticker).
+- `src/display.cpp` — rendering: prices table, ticker detail view with graph, API status indicator.
+- `src/display_cycle.cpp` — display-cycle navigation state (single source of truth).
+- `src/display_power.cpp` — backlight/panel power state machine, button debouncing, deep-sleep hook.
+- `src/api_health.cpp` — rolling API health history (green/yellow/red).
+- `src/ota_mgr.cpp` — OTA manifest check, HTTPS download, SHA-256 verification, flashing.
 - `src/layout_mgr.cpp` — grid-based layout helper.
-- `include/` — headers (display config, layout, crypto, wifi).
+- `src/qr_display.cpp` — QR rendering for the AP-mode setup screen.
+- `include/app_config.h` — central configuration (screen size, `FW_VERSION`, mDNS hostname, OTA manifest URL, default tickers, timing).
+- `data/` — LittleFS web pages (`wifi_config.html`, `ticker_config.html`).
+- `.github/workflows/build.yml` — CI build + auto-published releases (nightly on `main`, versioned on `v*` tags).
+
+## Known Limitations
+
+- The configuration web server only runs in station (connected) mode, not in AP mode.
+- CoinGecko allows a single `vs_currencies` per request, so all tickers in one fetch share a quote currency (per-ticker quotes work per ticker detail/history fetch).
+- Historical data is not persisted across reboot (it is refetched on boot).
