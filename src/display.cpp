@@ -141,6 +141,14 @@ void render_layout(LovyanGFX& display) {
     display.setTextSize(BODY_TEXT_SIZE);
     display.setCursor(footer.x + FOOTER_INSET_X, footer.y + FOOTER_INSET_Y);
     display.print("By github.com/goodalexhunting");
+
+    // Firmware version in the bottom-right corner.
+    char version[24];
+    snprintf(version, sizeof(version), "FW %s", FW_VERSION);
+    display.setTextDatum(TR_DATUM);
+    display.setCursor(footer.x + footer.w - FOOTER_INSET_X, footer.y + FOOTER_INSET_Y);
+    display.print(version);
+    display.setTextDatum(TL_DATUM);
 }
 
 void update_prices_display(const PriceData* data, size_t count, const ConfigManager& config) {
@@ -277,11 +285,19 @@ void draw_api_status(ApiStatus status) {
             break;
     }
 
-    // Small filled circle in the top-left corner of the header.
+    // Small filled circle in the top-right corner of the header, vertically
+    // centred on the header title text.
     constexpr uint8_t STATUS_RADIUS = 4;
-    constexpr uint8_t STATUS_X      = 8;
-    constexpr uint8_t STATUS_Y      = 12;
-    tft.fillCircle(STATUS_X, STATUS_Y, STATUS_RADIUS, color);
+
+    LayoutManager layout(tft.width(), tft.height());
+    Rect          header = layout.grid(GRID_COLS, GRID_ROWS, 0, HEADER_ROW, 1, 1);
+
+    // Centre the icon at the same height as the header title text.
+    tft.setTextSize(TITLE_TEXT_SIZE);
+    int statusY = header.y + HEADER_INSET_Y + tft.fontHeight() / 2;
+    int statusX = header.x + header.w - STATUS_RADIUS - HEADER_INSET_X;
+
+    tft.fillCircle(statusX, statusY, STATUS_RADIUS, color);
 }
 
 void show_message(const char* msg) {

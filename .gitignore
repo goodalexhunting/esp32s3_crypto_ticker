@@ -5,3 +5,4 @@ arduino/libraries/*
 *.bin
 .vscode
 lib
+TASKS.md
