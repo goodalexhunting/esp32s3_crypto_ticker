@@ -13,9 +13,16 @@ constexpr uint8_t GRAPH_INSET_X       = 12;
 constexpr uint8_t GRAPH_TOP           = 40;
 constexpr uint8_t GRAPH_BOTTOM_MARGIN = 8;
 constexpr uint8_t GRAPH_PAD           = 4;
-constexpr uint8_t DETAIL_LABEL_SIZE   = 2;
-constexpr uint8_t DETAIL_PRICE_SIZE   = 2;
-constexpr uint8_t DETAIL_QUOTE_SIZE   = 1;
+constexpr uint8_t DETAIL_TEXT_SIZE    = 2;  // shared by all three detail columns
+
+// Detail-view subtitle frame (px): a bordered panel split into three
+// fixed compartments: | pair | 24h change | price |.
+constexpr uint8_t DETAIL_FRAME_TOP    = 6;    // offset from the content area top
+constexpr uint8_t DETAIL_FRAME_H      = 30;   // panel height
+constexpr uint8_t DETAIL_FRAME_PAD    = 8;    // inner padding from the panel edges
+constexpr uint8_t DETAIL_COL_PAIR_W   = 112;  // 1st compartment: ticker pair
+constexpr uint8_t DETAIL_COL_CHANGE_W = 92;   // 2nd compartment: 24h change
+// 3rd compartment (price) takes the remaining frame width.
 
 // ---------------------------------------------------------------------------
 // Layout geometry (px)
@@ -51,6 +58,10 @@ constexpr uint8_t TABLE_TEXT_SIZE = 2;
 // Runtime storage for the latest fetched prices and 24h changes.
 PriceData coinData[MAX_TICKERS] = {};
 
+// ---------------------------------------------------------------------------
+// Text helpers
+// ---------------------------------------------------------------------------
+
 void formatPrice(float value, char* buf, size_t len) {
     if (value >= 1000.0f) {
         dtostrf(value, 1, 0, buf);
@@ -61,9 +72,75 @@ void formatPrice(float value, char* buf, size_t len) {
     }
 }
 
+// Format a price as a "$"-prefixed string (shared by the table and the
+// ticker detail view).
+void formatPriceDollar(float value, char* buf, size_t len) {
+    char raw[16];
+    formatPrice(value, raw, sizeof(raw));
+    snprintf(buf, len, "$%s", raw);
+}
+
+// ---------------------------------------------------------------------------
+// Layout helpers
+// ---------------------------------------------------------------------------
+
 Rect contentArea() {
     LayoutManager layout(tft.width(), tft.height());
     return layout.grid(GRID_COLS, GRID_ROWS, 0, CONTENT_ROW, 1, CONTENT_ROWSPAN);
+}
+
+// Blank the content area and return its bounds.
+Rect blankContentArea() {
+    Rect content = contentArea();
+    tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
+    return content;
+}
+
+// Redraw the static chrome (header/footer), then blank the content area.
+Rect renderContentFrame() {
+    render_layout(tft);
+    return blankContentArea();
+}
+
+// Y offset that vertically centres the currently configured font size
+// inside a box of the given height.
+int centeredTextY(int boxY, int boxH) {
+    return boxY + (boxH - tft.fontHeight()) / 2;
+}
+
+// ---------------------------------------------------------------------------
+// Coin table
+// ---------------------------------------------------------------------------
+
+void drawTableFrame(const Rect& table, int colSplit) {
+    // Borders via cheap primitives
+    tft.drawRect(table.x, table.y, table.w, table.h, TFT_WHITE);
+    tft.drawLine(colSplit, table.y, colSplit, table.y + table.h, TFT_WHITE);
+    tft.drawLine(table.x, table.y + HEADER_H, table.x + table.w, table.y + HEADER_H, TFT_WHITE);
+
+    tft.setTextSize(TABLE_TEXT_SIZE);
+    tft.setTextDatum(TL_DATUM);
+
+    // Header row
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(table.x + TEXT_OFFSET_X, table.y + TEXT_OFFSET_Y);
+    tft.print("SYMBOL");
+    tft.setCursor(colSplit + TEXT_OFFSET_X, table.y + TEXT_OFFSET_Y);
+    tft.print("PRICE (USD)");
+}
+
+void drawCoinRow(
+    const TickerConfig& ticker, const Rect& table, int colSplit, int rowY, const char* priceStr) {
+    // Symbol (brand color)
+    tft.setTextColor(ticker.color, TFT_BLACK);
+    tft.setCursor(table.x + TEXT_OFFSET_X, rowY + TEXT_OFFSET_Y);
+    tft.print(ticker.label);
+
+    // Price (right-aligned in the price column)
+    int priceW = tft.textWidth(priceStr);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(colSplit + table.w / 2 - priceW - TEXT_OFFSET_X, rowY + TEXT_OFFSET_Y);
+    tft.print(priceStr);
 }
 
 void drawCoinTable(const Rect& content, const ConfigManager& config) {
@@ -81,151 +158,99 @@ void drawCoinTable(const Rect& content, const ConfigManager& config) {
     const int    rowH =
         (table.h - HEADER_H) / numCoins > ROW_H ? ROW_H : (table.h - HEADER_H) / numCoins;
 
-    // Borders via cheap primitives
-    tft.drawRect(table.x, table.y, table.w, table.h, TFT_WHITE);
-    tft.drawLine(colSplit, table.y, colSplit, table.y + table.h, TFT_WHITE);
-    tft.drawLine(table.x, table.y + HEADER_H, table.x + table.w, table.y + HEADER_H, TFT_WHITE);
-
-    tft.setTextSize(TABLE_TEXT_SIZE);
-    tft.setTextDatum(TL_DATUM);
-
-    // Header row
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setCursor(table.x + TEXT_OFFSET_X, table.y + TEXT_OFFSET_Y);
-    tft.print("SYMBOL");
-    tft.setCursor(colSplit + TEXT_OFFSET_X, table.y + TEXT_OFFSET_Y);
-    tft.print("PRICE (USD)");
+    drawTableFrame(table, colSplit);
 
     // Coin rows
     for (size_t i = 0; i < numCoins; i++) {
-        int rowY = table.y + HEADER_H + i * rowH;
-
-        char buf[16];
-        formatPrice(coinData[i].price, buf, sizeof(buf));
-
         char priceStr[20];
-        snprintf(priceStr, sizeof(priceStr), "$%s", buf);
+        formatPriceDollar(coinData[i].price, priceStr, sizeof(priceStr));
 
-        // Symbol (brand color)
-        tft.setTextColor(config.get(i).color, TFT_BLACK);
-        tft.setCursor(table.x + TEXT_OFFSET_X, rowY + TEXT_OFFSET_Y);
-        tft.print(config.get(i).label);
-
-        // Price (right-aligned in the price column)
-        int priceW = tft.textWidth(priceStr);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        tft.setCursor(colSplit + table.w / 2 - priceW - TEXT_OFFSET_X, rowY + TEXT_OFFSET_Y);
-        tft.print(priceStr);
+        int rowY = table.y + HEADER_H + i * rowH;
+        drawCoinRow(config.get(i), table, colSplit, rowY, priceStr);
     }
 }
 
-}  // namespace
+// ---------------------------------------------------------------------------
+// Ticker detail view
+// ---------------------------------------------------------------------------
 
-void render_layout(LovyanGFX& display) {
-    LayoutManager layout(display.width(), display.height());
-
-    Rect header = layout.grid(GRID_COLS, GRID_ROWS, 0, HEADER_ROW, 1, 1);
-    Rect footer = layout.grid(GRID_COLS, GRID_ROWS, 0, FOOTER_ROW, 1, 1);
-
-    // Header
-    display.fillRect(header.x, header.y, header.w, header.h, TFT_BLACK);
-    display.setTextDatum(TL_DATUM);
-    display.setTextColor(TFT_WHITE, TFT_BLACK);
-    display.setTextSize(TITLE_TEXT_SIZE);
-    display.setCursor(header.x + HEADER_INSET_X, header.y + HEADER_INSET_Y);
-    display.print("ESP32S3 Crypto Ticker");
-
-    // Footer
-    display.fillRect(footer.x, footer.y, footer.w, footer.h, TFT_BLACK);
-    display.setTextColor(TFT_DARKGREY, TFT_BLACK);
-    display.setTextSize(BODY_TEXT_SIZE);
-    display.setCursor(footer.x + FOOTER_INSET_X, footer.y + FOOTER_INSET_Y);
-    display.print("By github.com/goodalexhunting");
-
-    // Firmware version in the bottom-right corner.
-    char version[24];
-    snprintf(version, sizeof(version), "FW %s", FW_VERSION);
-    display.setTextDatum(TR_DATUM);
-    display.setCursor(footer.x + footer.w - FOOTER_INSET_X, footer.y + FOOTER_INSET_Y);
-    display.print(version);
-    display.setTextDatum(TL_DATUM);
-}
-
-void update_prices_display(const PriceData* data, size_t count, const ConfigManager& config) {
-    size_t n = count < config.count() ? count : config.count();
-    for (size_t i = 0; i < n; i++) {
-        coinData[i] = data[i];
-    }
-
-    // Redraw the full layout (header/footer) to wipe any leftover
-    // AP-mode QR screen content, then draw the table.
-    render_layout(tft);
-    Rect content = contentArea();
-    tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
-
-    drawCoinTable(content, config);
-    Serial.println("Display updated");
-}
-
-void update_ticker_display(const TickerConfig&  ticker,
-                           const PriceData&     data,
-                           const HistoryBuffer& history) {
-    // Start from a clean slate every time so the header/footer etc.
-    // are rebuilt and the content area is blanked.
-    render_layout(tft);
-
-    LayoutManager layout(tft.width(), tft.height());
-    Rect          content = contentArea();
-    tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
-
-    // --- Ticker pair (label + quote) on one line ---
-    tft.setTextDatum(TL_DATUM);
+void drawTickerPair(const TickerConfig& ticker, int frameX, int frameY, int frameH) {
     tft.setTextColor(ticker.color, TFT_BLACK);
-    tft.setTextSize(DETAIL_LABEL_SIZE);
-    int pairX = content.x + GRAPH_INSET_X;
-    int pairY = content.y + 4;
+
+    int pairX = frameX + DETAIL_FRAME_PAD;
+    int pairY = centeredTextY(frameY, frameH);
     tft.setCursor(pairX, pairY);
     tft.print(ticker.label);
 
-    // Quote currency immediately after the label (small, dimmed),
-    // vertically centred against the size-2 label text.
+    // Quote currency immediately after the label (dimmed).
     int labelW = tft.textWidth(ticker.label);
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-    tft.setTextSize(DETAIL_QUOTE_SIZE);
-    tft.setCursor(pairX + labelW + 6, content.y + 8);
+    tft.setCursor(pairX + labelW + 6, pairY);
     tft.print("/ ");
     tft.print(ticker.quote);
+}
 
-    // --- Current price ---
-    char buf[16];
-    formatPrice(data.price, buf, sizeof(buf));
-    char priceStr[24];
-    snprintf(priceStr, sizeof(priceStr), "$%s", buf);
-
-    // --- 24h change (right-aligned, same row as the price) ---
+void drawTickerChange(const PriceData& data, int col2X, int frameY, int frameH) {
     char changeStr[16];
     snprintf(changeStr, sizeof(changeStr), "%+.2f%%", data.change24h);
 
     uint16_t changeColor = (data.change24h >= 0.0f) ? TFT_GREEN : TFT_RED;
-    int      rightX      = content.x + content.w - GRAPH_INSET_X;
-    int      rightY      = content.y + 8;
-
-    tft.setTextDatum(TR_DATUM);
     tft.setTextColor(changeColor, TFT_BLACK);
-    tft.setTextSize(DETAIL_QUOTE_SIZE);
-    tft.setCursor(rightX, rightY);
+    int changeY = centeredTextY(frameY, frameH);
+    tft.setCursor(col2X + DETAIL_FRAME_PAD, changeY);
     tft.print(changeStr);
+}
 
-    // Price right-aligned to the left of the change with a small gap,
-    // so both stay on the same row.
-    int changeW = tft.textWidth(changeStr);
+void drawTickerPrice(const PriceData& data, int col3X, int frameY, int frameH) {
+    char priceStr[24];
+    formatPriceDollar(data.price, priceStr, sizeof(priceStr));
+
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextSize(DETAIL_PRICE_SIZE);
-    tft.setCursor(rightX - changeW - 8, content.y + 4);
+    int priceY = centeredTextY(frameY, frameH);
+    tft.setCursor(col3X + DETAIL_FRAME_PAD, priceY);
     tft.print(priceStr);
+}
+
+// Subtitle frame: a bordered panel split into three fixed compartments:
+// | pair | 24h change | price |.
+void drawTickerFrame(const Rect& content, const TickerConfig& ticker, const PriceData& data) {
+    int frameX = content.x + GRAPH_INSET_X;
+    int frameY = content.y + DETAIL_FRAME_TOP;
+    int frameW = content.w - GRAPH_INSET_X * 2;
+    int frameH = DETAIL_FRAME_H;
+
+    tft.drawRect(frameX, frameY, frameW, frameH, TFT_DARKGREY);
+
+    // Fixed column boundaries.
+    int col2X = frameX + DETAIL_COL_PAIR_W;
+    int col3X = col2X + DETAIL_COL_CHANGE_W;
+
+    // Vertical dividers between the compartments.
+    tft.drawLine(col2X, frameY, col2X, frameY + frameH, TFT_DARKGREY);
+    tft.drawLine(col3X, frameY, col3X, frameY + frameH, TFT_DARKGREY);
+
+    // All three columns share the same text size and left alignment.
+    tft.setTextSize(DETAIL_TEXT_SIZE);
     tft.setTextDatum(TL_DATUM);
 
-    // --- Graph ---
+    drawTickerPair(ticker, frameX, frameY, frameH);
+    drawTickerChange(data, col2X, frameY, frameH);
+    drawTickerPrice(data, col3X, frameY, frameH);
+}
+
+// Map a history index to the graph's X pixel coordinate.
+int scaledX(size_t index, size_t count, int gxInner, int innerW) {
+    float t = index / (float)(count - 1);
+    return gxInner + (int)(t * (innerW - 1));
+}
+
+// Map a price sample to the graph's Y pixel coordinate.
+int scaledY(float value, float minVal, float range, int gyBottom, int innerH) {
+    float f = (value - minVal) / range;
+    return gyBottom - (int)(f * (innerH - 1));
+}
+
+void drawPriceGraph(const Rect& content, const TickerConfig& ticker, const HistoryBuffer& history) {
     int gx = content.x + GRAPH_INSET_X;
     int gy = content.y + GRAPH_TOP;
     int gw = content.w - GRAPH_INSET_X * 2;
@@ -236,7 +261,7 @@ void update_ticker_display(const TickerConfig&  ticker,
 
     if (history.size() < 2) {
         tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-        tft.setTextSize(DETAIL_QUOTE_SIZE);
+        tft.setTextSize(BODY_TEXT_SIZE);
         tft.setCursor(gx + GRAPH_PAD, gy + 6);
         tft.print("No history yet");
         Serial.println("Ticker display (no history)");
@@ -261,21 +286,69 @@ void update_ticker_display(const TickerConfig&  ticker,
     int gyBottom = gy + gh - GRAPH_PAD;
 
     for (size_t i = 1; i < history.size(); i++) {
-        float f0 = (history.at(i - 1) - minVal) / range;
-        float f1 = (history.at(i) - minVal) / range;
-
-        float a = (i - 1) / (float)(history.size() - 1);
-        float b = i / (float)(history.size() - 1);
-
-        int x0 = gxInner + (int)(a * (innerW - 1));
-        int x1 = gxInner + (int)(b * (innerW - 1));
-        int y0 = gyBottom - (int)(f0 * (innerH - 1));
-        int y1 = gyBottom - (int)(f1 * (innerH - 1));
+        int x0 = scaledX(i - 1, history.size(), gxInner, innerW);
+        int x1 = scaledX(i, history.size(), gxInner, innerW);
+        int y0 = scaledY(history.at(i - 1), minVal, range, gyBottom, innerH);
+        int y1 = scaledY(history.at(i), minVal, range, gyBottom, innerH);
 
         tft.drawLine(x0, y0, x1, y1, ticker.color);
     }
 
     Serial.println("Ticker display updated");
+}
+
+// ---------------------------------------------------------------------------
+// Price storage
+// ---------------------------------------------------------------------------
+
+void storePrices(const PriceData* data, size_t count, const ConfigManager& config) {
+    size_t n = count < config.count() ? count : config.count();
+    for (size_t i = 0; i < n; i++) {
+        coinData[i] = data[i];
+    }
+}
+
+}  // namespace
+
+void render_layout(LovyanGFX& display) {
+    LayoutManager layout(display.width(), display.height());
+
+    Rect header = layout.grid(GRID_COLS, GRID_ROWS, 0, HEADER_ROW, 1, 1);
+    Rect footer = layout.grid(GRID_COLS, GRID_ROWS, 0, FOOTER_ROW, 1, 1);
+
+    // Header
+    display.fillRect(header.x, header.y, header.w, header.h, TFT_BLACK);
+    display.setTextDatum(TL_DATUM);
+    display.setTextColor(TFT_WHITE, TFT_BLACK);
+    display.setTextSize(TITLE_TEXT_SIZE);
+    display.setCursor(header.x + HEADER_INSET_X, header.y + HEADER_INSET_Y);
+    display.print("ESP32S3 Crypto Ticker");
+
+    // Footer (single line: attribution | FW version).
+    display.fillRect(footer.x, footer.y, footer.w, footer.h, TFT_BLACK);
+    display.setTextDatum(TL_DATUM);
+    display.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    display.setTextSize(BODY_TEXT_SIZE);
+    display.setCursor(footer.x + FOOTER_INSET_X, footer.y + FOOTER_INSET_Y);
+    display.print("By github.com/goodalexhunting | FW ");
+    display.print(FW_VERSION);
+}
+
+void update_prices_display(const PriceData* data, size_t count, const ConfigManager& config) {
+    storePrices(data, count, config);
+
+    Rect content = renderContentFrame();
+    drawCoinTable(content, config);
+    Serial.println("Display updated");
+}
+
+void update_ticker_display(const TickerConfig&  ticker,
+                           const PriceData&     data,
+                           const HistoryBuffer& history) {
+    Rect content = renderContentFrame();
+
+    drawTickerFrame(content, ticker, data);
+    drawPriceGraph(content, ticker, history);
 }
 
 void draw_api_status(ApiStatus status) {
@@ -309,8 +382,7 @@ void draw_api_status(ApiStatus status) {
 }
 
 void show_message(const char* msg) {
-    Rect content = contentArea();
-    tft.fillRect(content.x, content.y, content.w, content.h, TFT_BLACK);
+    Rect content = blankContentArea();
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.setTextSize(BODY_TEXT_SIZE);
     tft.setTextDatum(TL_DATUM);

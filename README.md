@@ -15,7 +15,7 @@ The device shows live cryptocurrency prices from the [CoinGecko API](https://www
 - Smart price formatting — up to 3 decimal places (e.g. `$67,234`, `$150.45`, `$0.001`).
 - **24h percentage change** for every ticker, sourced from CoinGecko market data (`include_24hr_change`). Positive changes are shown green, negative red.
 
-### Network web configuration (Task 1)
+### Network web configuration 
 
 - mDNS: the device advertises itself as **`http://crypto-ticker.local`** on your network.
 - A lightweight web page (served from LittleFS) to **view, add, remove, reorder and reset** the configured tickers.
@@ -23,7 +23,7 @@ The device shows live cryptocurrency prices from the [CoinGecko API](https://www
 - Configuration persists across reboot in **NVS** (`Preferences`), so nothing is hard-coded into the display logic.
 - Each ticker stores its display label, CoinGecko API ID, quote currency and optional brand colour, so a symbol like `BTC` is never assumed to identify an asset by itself.
 
-### Ticker cycling and historical graphs (Task 2)
+### Ticker cycling and historical graphs
 
 - The display cycles dynamically from the configuration: **view 0 = the prices table**, views 1..N = one detailed view per configured ticker.
 - Navigate with the device buttons (debounced, wraps around in both directions):
@@ -31,20 +31,6 @@ The device shows live cryptocurrency prices from the [CoinGecko API](https://www
   - **GPIO14** = next view
 - Each ticker detail view shows the current price, the 24h change, and a **7-day historical graph** (144 points, 5-minute CoinGecko `market_chart` data downsampled into fixed-size ring buffers — no heap allocation).
 - History is fetched on boot and on config changes; every successful price fetch appends to the buffer, so the graph keeps growing without extra API calls.
-
-### API/network status indicator (Task 3)
-
-- A small indicator in the **top-left corner** reflects the health of the market-data API using a rolling history of the last 8 requests:
-  - **Green** — API healthy (recent requests succeeding)
-  - **Yellow** — degraded (some recent requests failing)
-  - **Red** — unavailable (all recent requests failing)
-- On API failure the device **keeps showing the last known price, 24h change and graph** — the display is never blanked. The indicator recovers gradually as requests succeed again.
-
-### OTA firmware updates (Task 4)
-
-- The device checks a version manifest once per boot (after the first Wi-Fi connection) and installs a newer firmware **without a USB cable**.
-- Downloads over **HTTPS** (validated with the ESP32 certificate bundle), streams the image while computing **SHA-256**, and only flashes when the checksum matches the manifest — a failed/incomplete download leaves the previous firmware untouched.
-- An **A/B dual-slot partition table** means the bootloader can always fall back to the last working image.
 
 ### Display power management
 
@@ -89,7 +75,7 @@ API endpoints: `GET /` (page), `GET /api/tickers`, `POST /api/tickers` (add), `D
 - **Every push/merge into `prod`** builds the firmware **and** the LittleFS filesystem image, then auto-increments the **PATCH** number (e.g. `1.0.0` → `1.0.1`). `MAJOR.MINOR` is user-managed via `FW_VERSION` in `include/app_config.h` and is never auto-incremented.
 - The computed version is baked into the firmware at build time, a git tag `vX.Y.Z` is created, and a stable GitHub Release is published.
 
-Production releases carry four assets: `firmware.bin`, `partitions.bin`, `littlefs.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256). Legacy non-production releases (e.g. old `nightly-*` releases) are deleted automatically so `/releases/latest` always points at a stable production release for OTA.
+Production releases carry four assets: `firmware.bin`, `partitions.bin`, `littlefs.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256).
 
 ### Rolling out a firmware update
 
