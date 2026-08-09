@@ -59,6 +59,10 @@ OtaManager::CheckResult OtaManager::checkForUpdate(const String& manifestUrl) {
 
     HTTPClient http;
     http.begin(manifestUrl);
+    // GitHub release assets respond with a 302 redirect to the asset CDN.
+    // HTTPClient does not follow redirects by default (Arduino core 3.x),
+    // so redirects must be enabled explicitly for the manifest check.
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
     http.addHeader("User-Agent", "ESP32");
     int httpCode = http.GET();
 
@@ -129,6 +133,9 @@ bool OtaManager::performUpdate(const String& firmwareUrl, const String& sha256) 
 
     HTTPClient http;
     http.begin(firmwareUrl);
+    // The firmware binary is served behind the same 302 redirect from
+    // the GitHub release asset CDN; follow it so the download succeeds.
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
     http.addHeader("User-Agent", "ESP32");
     int httpCode = http.GET();
 
