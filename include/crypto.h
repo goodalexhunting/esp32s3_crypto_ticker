@@ -1,17 +1,10 @@
 #pragma once
 
-#include <Arduino.h>
-#include <layout_manager.h>
-#include <lgfx_user_setup.h>
-
-/** Global display instance, defined in main.cpp. */
-extern LGFX tft;
+#include <cstddef>
 
 /**
- * Fetch and parse current prices, then redraw the coin cells.
+ * Fetch and parse current prices from CoinGecko.
+ * Writes the parsed USD values into outValues (one per tracked coin).
  * Returns true if the fetch and parse succeeded (HTTP 200 + valid JSON).
  */
-bool update_crypto();
-
-/** Draw the static layout (header/footer/coin backgrounds). */
-void render_layout(LovyanGFX& display);
+bool fetch_prices(float* outValues, size_t count);
