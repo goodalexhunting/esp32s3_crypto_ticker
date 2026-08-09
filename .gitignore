@@ -4,3 +4,5 @@ arduino/libraries/*
 .DS_Store
 *.bin
 .vscode
+include/wifi_secrets.h
+lib
