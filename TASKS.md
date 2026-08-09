@@ -177,7 +177,7 @@ Before moving to Task 2, document:
 
 ---
 
-# Task 2 — Ticker Cycling and Historical Graphs
+# Task 2 — Ticker Cycling and Historical Graphs ✅
 
 ## Objective
 
@@ -285,6 +285,22 @@ Before completing the task, document:
 - Button/debounce implementation.
 - Cycle-to-ticker mapping.
 - Any CoinGecko limitations or compromises.
+
+### Implementation Notes
+
+* **CoinGecko endpoints**:
+  * Current prices: `GET /api/v3/simple/price?ids=...&vs_currencies=...` (existing).
+  * Historical data: `GET /api/v3/coins/{id}/market_chart?vs_currency={quote}&days=7`.
+* **USDC pairing**: The quote currency is stored per-ticker in the configuration. The market_chart endpoint uses the configured quote currency directly (e.g. `usdc`), so genuine USDC market data is used when configured.
+* **Historical sampling interval**: The market_chart endpoint returns 5-minutely data for `days=7`. The firmware downsamples to `HISTORY_POINTS` (144) points per ticker.
+* **Points retained per ticker**: 144 (fixed-size ring buffer, no heap allocation).
+* **Approximate RAM usage**: `HISTORY_POINTS * sizeof(float) * MAX_TICKERS` = 144 * 4 * 8 = 4,608 bytes for all history buffers.
+* **Button/debounce implementation**: `DisplayPower` now tracks each button independently with a 30ms debounce window. `consumeButtonEvent()` returns which button was pressed (BUTTON_1 = GPIO0 = previous, BUTTON_2 = GPIO14 = next).
+* **Cycle-to-ticker mapping**: `DisplayCycle` class maintains the current cycle index. `cycle[0]` = table view, `cycle[i]` (i > 0) = configured ticker at index (i-1). Navigation wraps in both directions.
+* **Configuration changes**: `ConfigManager` now has a `revision()` counter that increments on add/remove/move/reset. The main loop detects revision changes, clamps the cycle index, resets history buffers, and refetches historical data.
+* **CoinGecko limitations**: The `market_chart` endpoint does not support `interval=daily` for ranges under 30 days, so 5-minutely data is fetched and downsampled. The free tier rate limit (10-30 calls/min) is respected by only fetching history on boot and on config changes.
+* **History persistence**: Historical data does not persist across reboot (per requirements).
+* **History updates**: Each successful price fetch appends to the ring buffer, so the graph grows over time without additional API calls.
 
 ---
 
