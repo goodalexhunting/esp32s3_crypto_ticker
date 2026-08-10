@@ -2,9 +2,9 @@ name: PlatformIO Build
 
 on:
   push:
-    branches: [dev, staging, prod]
+    branches: [staging, prod]
   pull_request:
-    branches: [dev, staging, prod]
+    branches: [staging, prod]
   workflow_dispatch:
 
 permissions:
