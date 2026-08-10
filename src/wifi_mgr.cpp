@@ -1,9 +1,10 @@
 #include "wifi_mgr.h"
 
 #include <DNSServer.h>
-#include <LittleFS.h>
 #include <Preferences.h>
 #include <WiFi.h>
+
+#include "embedded_ui.h"
 
 namespace cryptoapp {
 
@@ -21,11 +22,7 @@ constexpr unsigned int CRED_MAX_PASS_LEN     = 64;
 }  // namespace
 
 WifiManager::WifiManager()
-    : _state(State::DISCONNECTED),
-      _server(80),
-      _apStartTime(0),
-      _lastReconnectAttempt(0),
-      _fsMounted(false) {
+    : _state(State::DISCONNECTED), _server(80), _apStartTime(0), _lastReconnectAttempt(0) {
     _server.on("/", HTTP_GET, std::bind(&WifiManager::handleRoot, this));
     _server.on("/scan", HTTP_GET, std::bind(&WifiManager::handleScan, this));
     _server.on("/connect", HTTP_POST, std::bind(&WifiManager::handleConnect, this));
@@ -33,7 +30,6 @@ WifiManager::WifiManager()
 }
 
 bool WifiManager::begin() {
-    mountFileSystem();
     loadCredentials();
 
     if (_ssid.length() > 0) {
@@ -91,28 +87,6 @@ void WifiManager::forceAPMode() {
     startAP();
 }
 
-bool WifiManager::mountFileSystem() {
-    if (_fsMounted) {
-        return true;
-    }
-    _fsMounted = LittleFS.begin();
-    if (!_fsMounted) {
-        Serial.println("[WiFi] LittleFS mount failed");
-        return false;
-    }
-    Serial.println("[WiFi] LittleFS mounted");
-    return true;
-}
-
-void WifiManager::unmountFileSystem() {
-    if (!_fsMounted) {
-        return;
-    }
-    LittleFS.end();
-    _fsMounted = false;
-    Serial.println("[WiFi] LittleFS unmounted");
-}
-
 void WifiManager::sleep() {
     if (_state == State::AP_MODE) {
         stopAP();
@@ -167,9 +141,6 @@ void WifiManager::handleReconnect() {
 // ---------------------------------------------------------------------------
 
 void WifiManager::startAP() {
-    // Ensure the config page is available even if the FS was unmounted.
-    mountFileSystem();
-
     String apSuffix = String((uint32_t)ESP.getEfuseMac(), HEX);
     apSuffix.toUpperCase();
     _apName = "CryptoTicker-" + apSuffix;
@@ -259,14 +230,9 @@ String WifiManager::buildScanJson() {
 }
 
 void WifiManager::handleRoot() {
-    File file = LittleFS.open("/wifi_config.html", "r");
-    if (!file) {
-        _server.send(500, "text/plain", "Config page not found");
-        return;
-    }
+    // Serve the embedded page straight from flash (no filesystem).
     _server.sendHeader("Cache-Control", "no-store");
-    _server.streamFile(file, "text/html");
-    file.close();
+    _server.send_P(200, "text/html", WIFI_CONFIG_HTML, sizeof(WIFI_CONFIG_HTML));
 }
 
 void WifiManager::handleScan() {

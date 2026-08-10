@@ -5,6 +5,8 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <esp_ota_ops.h>
+#include <esp_task_wdt.h>
 #include <mbedtls/sha256.h>
 
 #include "app_config.h"
@@ -17,6 +19,8 @@ namespace {
 constexpr char MANIFEST_VERSION[]      = "version";
 constexpr char MANIFEST_FIRMWARE_URL[] = "firmware_url";
 constexpr char MANIFEST_SHA256[]       = "sha256";
+constexpr int  HTTP_CONNECT_TIMEOUT_MS = 5000;
+constexpr int  HTTP_READ_TIMEOUT_MS    = 8000;
 
 // Compare two semantic version strings "major.minor.patch".
 // Returns:
@@ -59,6 +63,10 @@ OtaManager::CheckResult OtaManager::checkForUpdate(const String& manifestUrl) {
 
     HTTPClient http;
     http.begin(manifestUrl);
+    // Bound the request so a slow or unreachable update server can never
+    // block the main loop.
+    http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HTTP_READ_TIMEOUT_MS);
     // GitHub release assets respond with a 302 redirect to the asset CDN.
     // HTTPClient does not follow redirects by default (Arduino core 3.x),
     // so redirects must be enabled explicitly for the manifest check.
@@ -133,6 +141,8 @@ bool OtaManager::performUpdate(const String& firmwareUrl, const String& sha256) 
 
     HTTPClient http;
     http.begin(firmwareUrl);
+    http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HTTP_READ_TIMEOUT_MS);
     // The firmware binary is served behind the same 302 redirect from
     // the GitHub release asset CDN; follow it so the download succeeds.
     http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
@@ -210,6 +220,30 @@ bool OtaManager::performUpdate(const String& firmwareUrl, const String& sha256) 
     Serial.flush();
     ESP.restart();
     return true;
+}
+
+void OtaManager::selfTestVerification() {
+    // Cancel the pending bootloader rollback: the app running from the
+    // newly updated partition has booted far enough to reach this point,
+    // so the updated partition is now the known-good one.
+    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err == ESP_OK) {
+        Serial.println("[OTA] Self-test passed - OTA boot confirmed");
+    } else {
+        // ESP_ERR_OTA_ROLLBACK_INVALID_STATE means the app is running from a
+        // factory partition, where rollback tracking does not apply.
+        Serial.printf("[OTA] mark_app_valid result: %s\n", esp_err_to_name(err));
+    }
+
+    // Disarm the boot-time task watchdog that was armed in setup() so a
+    // hung boot forces a reboot back to the previously working partition.
+    esp_err_t wdtErr = esp_task_wdt_delete(nullptr);
+    if (wdtErr != ESP_OK && wdtErr != ESP_ERR_NOT_FOUND) {
+        Serial.printf("[OTA] Watchdog disarm warning: %s\n", esp_err_to_name(wdtErr));
+    } else {
+        Serial.println("[OTA] Boot watchdog disarmed");
+    }
+    esp_task_wdt_deinit();
 }
 
 }  // namespace cryptoapp

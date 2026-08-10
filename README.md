@@ -18,8 +18,10 @@ The device shows live cryptocurrency prices from the [CoinGecko API](https://www
 ### Network web configuration 
 
 - mDNS: the device advertises itself as **`http://crypto-ticker.local`** on your network.
-- A lightweight web page (served from LittleFS) to **view, add, remove, reorder and reset** the configured tickers.
-- Clean JSON API (`/api/tickers`) behind the web UI — HTTP handlers only talk to the `ConfigManager`, never to the display directly.
+- **Asynchronous HTTP server** (`ESPAsyncWebServer`): requests are handled off the main loop, so browsing the config page or hitting the API never stalls the ticker's display updates or price fetches.
+- Visiting **`http://crypto-ticker.local`** redirects to the project's **GitHub Pages landing page** (`site/index.html`), which the device passes its own mDNS address to (`?device=crypto-ticker.local`). The landing page links back to **`/config`** — the actual ticker configuration UI served directly by the device.
+- The configuration web UI and the AP-mode WiFi setup page are **embedded in the firmware** (PROGMEM strings in `include/embedded_ui.h`) — there is no LittleFS filesystem image to build or upload. Config changes still go through the firmware's own async JSON API (`/api/tickers`).
+- The async handlers never touch the `ConfigManager` directly — they enqueue operations that the main loop drains, keeping the config state single-threaded and race-free with the display.
 - Configuration persists across reboot in **NVS** (`Preferences`), so nothing is hard-coded into the display logic.
 - Each ticker stores its display label, CoinGecko API ID, quote currency and optional brand colour, so a symbol like `BTC` is never assumed to identify an asset by itself.
 
@@ -48,34 +50,47 @@ The device shows live cryptocurrency prices from the [CoinGecko API](https://www
 
 ## Configuring Tickers
 
-While connected to your network, open **`http://crypto-ticker.local`** (or the device IP) in any desktop or mobile browser.
+While connected to your network, open **`http://crypto-ticker.local`** (or the device IP) in any desktop or mobile browser. The device redirects you to the project's GitHub Pages landing page, which links back to the configuration UI served by the device at **`/config`**.
 
 - See the currently configured tickers.
 - Add a ticker: display label, CoinGecko API ID (e.g. `bitcoin`, `solana`, `sui`), quote currency (e.g. `usd`, `usdc`), optional colour.
 - Remove, reorder, or reset to the default tickers.
 - Changes are saved to NVS and applied to the display immediately.
 
-API endpoints: `GET /` (page), `GET /api/tickers`, `POST /api/tickers` (add), `DELETE /api/tickers?id=N` (remove), `POST /api/tickers/move` (reorder), `POST /api/tickers/reset`.
+API endpoints: `GET /` (redirect to the GitHub Pages landing page), `GET /config` (configuration UI), `GET /api/tickers`, `POST /api/tickers` (add), `DELETE /api/tickers?id=N` (remove), `POST /api/tickers/move` (reorder), `POST /api/tickers/reset`.
 
 ## OTA Updates and the Release Pipeline
 
 ### How the device updates
 
-1. On the first successful Wi-Fi connection it fetches the version manifest:
+1. Shortly after boot (30s) and then **every hour** while connected, the device fetches the version manifest:
    `https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest/download/ota_manifest.json`
 2. It compares the manifest version against the installed `FW_VERSION` (single authoritative constant in `include/app_config.h`, currently `1.0.0`).
-3. If the remote is newer, it downloads `firmware.bin`, verifies the SHA-256 checksum, flashes the inactive OTA slot, and reboots.
-4. The check runs **once per boot** and never blocks the ticker — if the update server is unavailable the device just continues normal operation.
+3. If the remote is newer, it downloads `firmware.bin`, verifies the SHA-256 checksum, flashes the **inactive A/B partition**, and reboots.
+4. The check runs on a fixed hourly schedule in `loop()` and never blocks the ticker — if the update server is unavailable the device just continues normal operation and retries at the next interval.
+
+### A/B firmware slots and rollback protection
+
+The device uses the ESP32 A/B (dual-slot) OTA layout — `app0`/`app1` in `partitions.csv` — so the running firmware is never overwritten in place:
+
+- **Partition A** is the active firmware. **Partition B** receives the downloaded release, so a failed download or a corrupted image can never damage the working partition.
+- After the new image is flashed, the bootloader boots it while the boot is still "pending".
+- On boot, the app arms a **30-second hardware task watchdog** and only calls the explicit self-test verification (`OtaManager::selfTestVerification()`, which cancels the pending rollback and disarms the watchdog) once init completes successfully.
+- If the new firmware fails to initialise — or never reaches the self-test call within 30 seconds — the watchdog forcibly reboots the chip and the **bootloader rolls back to the previously working partition**. This completely prevents bricking.
+- Once the self-test passes, the updated partition permanently becomes the active firmware.
+
+The Arduino framework ships a prebuilt ESP-IDF SDK whose bootloader already enables rollback tracking (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`), which is what the bootloader uses to revert to the previously working partition when the self-test never completes.
 
 ### How releases are generated (GitHub Actions)
 
 `.github/workflows/build.yml` uses the three-stage promotion model **`dev` → `staging` → `prod`**:
 
 - Pushes/PRs to `dev` and `staging` are **build-verified only** — no releases are published.
-- **Every push/merge into `prod`** builds the firmware **and** the LittleFS filesystem image, then auto-increments the **PATCH** number (e.g. `1.0.0` → `1.0.1`). `MAJOR.MINOR` is user-managed via `FW_VERSION` in `include/app_config.h` and is never auto-incremented.
+- **Every push/merge into `prod`** builds the firmware, then auto-increments the **PATCH** number (e.g. `1.0.0` → `1.0.1`). `MAJOR.MINOR` is user-managed via `FW_VERSION` in `include/app_config.h` and is never auto-incremented.
 - The computed version is baked into the firmware at build time, a git tag `vX.Y.Z` is created, and a stable GitHub Release is published.
+- The GitHub Pages landing page (`site/index.html`) is deployed in the same prod run, so the mDNS → GitHub Pages → device-config flow stays in sync with the releases.
 
-Production releases carry four assets: `firmware.bin`, `partitions.bin`, `littlefs.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256).
+Production releases carry three assets: `firmware.bin`, `partitions.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256).
 
 ### Rolling out a firmware update
 
@@ -92,35 +107,36 @@ pio run -e lilygo-t-display-s3
 
 # Upload firmware to the device
 pio run -e lilygo-t-display-s3 -t upload
-
-# Build and upload the LittleFS filesystem image (web pages in data/)
-pio run -e lilygo-t-display-s3 -t buildfs
-pio run -e lilygo-t-display-s3 -t uploadfs
 ```
 
-> The web configuration pages (`data/wifi_config.html`, `data/ticker_config.html`) live in the LittleFS partition. Upload the filesystem image (`uploadfs`) if the pages are missing or outdated.
+> The web configuration pages are embedded in the firmware (`include/embedded_ui.h`), so there is no filesystem image to build or upload — a single `upload` flashes everything.
 
 ## Project Layout
 
 - `src/main.cpp` — boot flow, WiFi/config wiring, main loop, OTA check trigger.
-- `src/wifi_mgr.cpp` — WiFi manager: NVS credentials, AP mode + captive portal + QR, mDNS, reconnection, LittleFS mount.
+- `src/wifi_mgr.cpp` — WiFi manager: NVS credentials, AP mode + captive portal + QR, mDNS, reconnection.
 - `src/config_mgr.cpp` — ticker configuration list, NVS persistence (`ticker_cfg`), revision tracking.
-- `src/config_server.cpp` — HTTP configuration page + JSON API (`ConfigServer`).
+- `src/config_server.cpp` — async HTTP configuration page + JSON API (`ConfigServer`, ESPAsyncWebServer + op queue).
 - `src/crypto.cpp` — CoinGecko fetches: current prices, 24h changes, historical `market_chart`.
 - `src/history.cpp` — fixed-size price ring buffers (144 points/ticker).
 - `src/display.cpp` — rendering: prices table, ticker detail view with graph, API status indicator.
 - `src/display_cycle.cpp` — display-cycle navigation state (single source of truth).
 - `src/display_power.cpp` — backlight/panel power state machine, button debouncing, deep-sleep hook.
 - `src/api_health.cpp` — rolling API health history (green/yellow/red).
-- `src/ota_mgr.cpp` — OTA manifest check, HTTPS download, SHA-256 verification, flashing.
+- `src/ota_mgr.cpp` — hourly OTA manifest check, HTTPS download, SHA-256 verification, A/B flashing, boot self-test verification (rollback cancel + watchdog disarm).
 - `src/layout_mgr.cpp` — grid-based layout helper.
 - `src/qr_display.cpp` — QR rendering for the AP-mode setup screen.
-- `include/app_config.h` — central configuration (screen size, `FW_VERSION`, mDNS hostname, OTA manifest URL, default tickers, timing).
-- `data/` — LittleFS web pages (`wifi_config.html`, `ticker_config.html`).
-- `.github/workflows/build.yml` — CI build (`dev`/`staging`) + auto-published production releases on `prod`.
+- `include/app_config.h` — central configuration (screen size, `FW_VERSION`, mDNS hostname, OTA manifest URL, GitHub Pages URL, default tickers, timing).
+- `include/embedded_ui.h` — the configuration and WiFi setup pages as PROGMEM strings embedded in the firmware.
+- `site/` — the GitHub Pages landing page; the device redirects `http://crypto-ticker.local` here and passes its own address via `?device=`.
+- `.github/workflows/build.yml` — CI build (`dev`/`staging`) + auto-published production releases and GitHub Pages deploy on `prod`.
 
 ## Known Limitations
 
 - The configuration web server only runs in station (connected) mode, not in AP mode.
 - CoinGecko allows a single `vs_currencies` per request, so all tickers in one fetch share a quote currency (per-ticker quotes work per ticker detail/history fetch).
 - Historical data is not persisted across reboot (it is refetched on boot).
+
+## Licenses
+
+This project embeds [ESPAsyncWebServer](https://github.com/ESP32Async/ESPAsyncWebServer) and [AsyncTCP](https://github.com/ESP32Async/AsyncTCP) by the ESP32Async org, which are licensed under the **LGPL-3.0** (the ESP32Async fork). The rest of the project retains its original license.
