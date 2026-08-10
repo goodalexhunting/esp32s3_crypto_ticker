@@ -15,6 +15,11 @@ constexpr char COINGECKO_MARKET_CHART_URL[] =
     "https://api.coingecko.com/api/v3/coins/{id}/"
     "market_chart?vs_currency={quote}&days={days}";
 
+// Bound every network request so a dead or hanging connection can never
+// stall the main loop (which would freeze button/display handling).
+constexpr int HTTP_CONNECT_TIMEOUT_MS = 5000;
+constexpr int HTTP_READ_TIMEOUT_MS    = 8000;
+
 void buildUrl(String& url, const ConfigManager& config) {
     url = COINGECKO_URL;
     for (size_t i = 0; i < config.count(); i++) {
@@ -49,6 +54,8 @@ bool httpGetJson(const String& url, JsonDocument& doc) {
 
     HTTPClient http;
     http.begin(url);
+    http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HTTP_READ_TIMEOUT_MS);
     http.addHeader("User-Agent", "ESP32");
     int httpCode = http.GET();
 

@@ -48,12 +48,38 @@ constexpr char OTA_MANIFEST_URL[] =
     "https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest/download/"
     "ota_manifest.json";
 
+// How often the OTA manifest is polled while the device is running
+// (connected to WiFi). The first check happens shortly after boot so a
+// pending release is picked up promptly, then this interval is used for
+// all subsequent checks.
+constexpr uint32_t OTA_CHECK_INTERVAL_MS = 60UL * 60UL * 1000UL;  // 1 hour
+
+// Boot-time self-test watchdog. After an OTA update the bootloader boots
+// the new partition; the app must call the self-test verification within
+// this window or the hardware task watchdog forces a reboot back into the
+// previously working partition. Rollback is enabled by the Arduino
+// framework's prebuilt SDK (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y).
+constexpr uint32_t BOOT_SELF_TEST_TIMEOUT_MS = 30UL * 1000UL;  // 30 seconds
+
 // ---------------------------------------------------------------------------
 // mDNS hostname
 // ---------------------------------------------------------------------------
 // The device advertises itself as <MDNS_HOSTNAME>.local on the local network.
 // This is the single authoritative location for the hostname.
 constexpr char MDNS_HOSTNAME[] = "crypto-ticker";
+
+// ---------------------------------------------------------------------------
+// Web configuration flow
+// ---------------------------------------------------------------------------
+// Visiting http://<MDNS_HOSTNAME>.local redirects to this GitHub Pages URL,
+// which acts as a public landing page for the project. The landing page
+// reads the ?device= query parameter and links back into the device's own
+// configuration UI (served by the firmware at CONFIG_PATH), so no static
+// files need to be shipped in the device filesystem.
+constexpr char GITHUB_PAGES_URL[] = "https://goodalexhunting.github.io/esp32s3_crypto_ticker/";
+
+// Path on the device that serves the configuration web UI.
+constexpr char CONFIG_PATH[] = "/config";
 
 // ---------------------------------------------------------------------------
 // CoinGecko API

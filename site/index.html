@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Crypto Ticker — ESP32-S3</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #121417;
+            color: #e8eaed;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background: #1c1f24;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 480px;
+            width: 100%;
+            border: 1px solid #2a2e35;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 1.6rem;
+            margin: 0 0 8px;
+        }
+
+        .tagline {
+            color: #9aa0a6;
+            margin: 0 0 24px;
+            font-size: 0.95rem;
+        }
+
+        .device {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .device input {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #2a2e35;
+            background: #23272e;
+            color: #e8eaed;
+            font-size: 1rem;
+        }
+
+        button.primary {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            background: #4d90f0;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.primary:hover {
+            background: #3b7ae0;
+        }
+
+        .hint {
+            color: #9aa0a6;
+            font-size: 0.85rem;
+            margin-top: 12px;
+        }
+
+        .links {
+            margin-top: 24px;
+            font-size: 0.9rem;
+        }
+
+        .links a {
+            color: #4d90f0;
+            text-decoration: none;
+        }
+
+        .links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h1>Crypto Ticker</h1>
+        <p class="tagline">A self-contained ESP32-S3 crypto ticker for the LilyGO T-Display-S3</p>
+
+        <p style="color:#9aa0a6; font-size:0.9rem; margin-top:0;">
+            Your device's configuration page is served directly from the device itself.
+            This page just links you to it.
+        </p>
+
+        <div class="device">
+            <input type="text" id="device" placeholder="crypto-ticker.local" aria-label="Device address">
+        </div>
+
+        <button class="primary" id="openBtn" onclick="openConfig()">Open Device Config</button>
+        <p class="hint">Requires the device to be powered on and on the same network.</p>
+
+        <div class="links">
+            <a href="https://github.com/goodalexhunting/esp32s3_crypto_ticker" target="_blank" rel="noopener">Source &
+                Releases</a>
+        </div>
+    </div>
+
+    <script>
+        // Read the ?device= query parameter. The device's "/" route redirects
+        // here with ?device=crypto-ticker.local so the landing page can link
+        // straight back into the device's own configuration UI at /config.
+        (() => {
+            const params = new URLSearchParams(window.location.search);
+            const device = params.get('device');
+            if (device) {
+                document.getElementById('device').value = device;
+            }
+        })();
+
+        function sanitize(value) {
+            // Allow hostnames/addresses only: letters, digits, dots, dashes.
+            return value.replace(/[^a-zA-Z0-9.\-]/g, '');
+        }
+
+        function openConfig() {
+            const raw = document.getElementById('device').value.trim();
+            const device = sanitize(raw);
+            if (!device) {
+                document.getElementById('device').focus();
+                return;
+            }
+            // A plain top-level navigation to the device's HTTP page. This
+            // avoids mixed-content blocking entirely because the page itself
+            // is not making the request - the browser is navigating to it.
+            window.location.href = 'http://' + device + '/config';
+        }
+
+        // Also open on Enter in the address field.
+        document.getElementById('device').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                openConfig();
+            }
+        });
+    </script>
+</body>
+
+</html>

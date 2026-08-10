@@ -25,10 +25,8 @@
 
 * Inspect the Git working tree before starting work.
 * Always append --no-pager to git commands (e.g., git --no-pager log, git --no-pager diff) to ensure non-interactive, readable terminal output.
-* If unrelated changes already exist, preserve them, do not revert them, do not reset them, and do not overwrite them.
-* Do not include existing uncommitted user changes in the current task's commit.
 * Work around existing changes where reasonably possible. If they conflict and cannot safely be preserved, stop and report the conflict.
-* Never assume uncommitted changes were created by the agent. Do not discard or overwrite user work to simplify implementation.
+
 
 ### Tool and Terminal Usage
 
