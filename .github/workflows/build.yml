@@ -12,14 +12,19 @@ permissions:
 
 jobs:
   test:
-    # Host-side unit + integration tests (no board required). Runs on
-    # pushes to staging (release candidates) and prod (production
-    # releases), gating both stages on the full suite. PR builds still
-    # compile without running tests (see build's needs.result handling
-    # below).
+    # Host-side unit + integration tests (no board required).
+    # Pre-merge gate: runs on pull requests targeting staging, so only
+    # PRs with a passing suite can be merged in.
+    # Post-merge gate: runs on pushes to staging (release candidates) and
+    # prod (production releases), blocking the build -- and therefore the
+    # release -- if the suite fails. PRs targeting prod and manual
+    # workflow_dispatch runs skip tests (compile-only, see build's
+    # needs.result handling below).
     if: >
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/prod')
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/prod')) ||
+      (github.event_name == 'pull_request' &&
+       github.base_ref == 'staging')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,9 +43,10 @@ jobs:
 
   build:
     needs: test
-    # Run the build when the test job either passed (staging/prod push) or
-    # was skipped (PR builds, which don't run tests). A failed test run
-    # blocks the build and therefore the release.
+    # Run the build when the test job either passed (tests ran and were
+    # green) or was skipped (PRs targeting prod and manual workflow_dispatch
+    # runs, which don't run tests). A failed test run blocks the build and
+    # therefore the release.
     if: needs.test.result == 'success' || needs.test.result == 'skipped'
     runs-on: ubuntu-latest
     outputs:
