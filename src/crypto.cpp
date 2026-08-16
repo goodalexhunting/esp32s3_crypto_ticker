@@ -6,46 +6,16 @@
 #include <WiFi.h>
 
 #include "app_config.h"
+#include "crypto_utils.h"
 
 namespace cryptoapp {
 
 namespace {
 
-constexpr char COINGECKO_MARKET_CHART_URL[] =
-    "https://api.coingecko.com/api/v3/coins/{id}/"
-    "market_chart?vs_currency={quote}&days={days}";
-
 // Bound every network request so a dead or hanging connection can never
 // stall the main loop (which would freeze button/display handling).
 constexpr int HTTP_CONNECT_TIMEOUT_MS = 5000;
 constexpr int HTTP_READ_TIMEOUT_MS    = 8000;
-
-void buildUrl(String& url, const ConfigManager& config) {
-    url = COINGECKO_URL;
-    for (size_t i = 0; i < config.count(); i++) {
-        if (i > 0) url += ",";
-        url += config.get(i).apiId;
-    }
-    url += "&vs_currencies=";
-    // Use the quote currency of the first ticker. All tickers share the
-    // same quote currency in practice, but we build the URL from the
-    // first configured ticker's quote.
-    if (config.count() > 0) {
-        url += config.get(0).quote;
-    } else {
-        url += "usd";
-    }
-    // Include 24h percentage change in the response.
-    url += "&include_24hr_change=true";
-}
-
-String buildMarketChartUrl(const TickerConfig& ticker) {
-    String url = COINGECKO_MARKET_CHART_URL;
-    url.replace("{id}", ticker.apiId);
-    url.replace("{quote}", ticker.quote);
-    url.replace("{days}", String(HISTORY_BACKFILL_DAYS));
-    return url;
-}
 
 bool httpGetJson(const String& url, JsonDocument& doc) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -76,62 +46,45 @@ bool httpGetJson(const String& url, JsonDocument& doc) {
     return true;
 }
 
+bool fetchJson(const String& url, JsonDocument& doc, CryptoHttp* http) {
+    if (http != nullptr) {
+        return http->getJson(url, doc);
+    }
+    return httpGetJson(url, doc);
+}
+
 }  // namespace
 
-bool fetch_prices(PriceData* outData, size_t count, const ConfigManager& config) {
+bool fetch_prices(PriceData* outData, size_t count, const ConfigManager& config, CryptoHttp* http) {
+    TickerConfig tickers[MAX_TICKERS];
+    size_t       tickerCount = config.count();
+    for (size_t i = 0; i < tickerCount && i < MAX_TICKERS; i++) {
+        tickers[i] = config.get(i);
+    }
+
     String url;
-    buildUrl(url, config);
+    buildUrl(url, tickers, tickerCount);
 
     JsonDocument doc;
-    if (!httpGetJson(url, doc)) {
+    if (!fetchJson(url, doc, http)) {
         return false;
     }
 
-    size_t n = count < config.count() ? count : config.count();
-    for (size_t i = 0; i < n; i++) {
-        const TickerConfig& t    = config.get(i);
-        JsonObject          coin = doc[t.apiId].as<JsonObject>();
-        outData[i].price         = coin[t.quote] | 0.0f;
-        outData[i].change24h     = coin[t.quote + "_24h_change"] | 0.0f;
-    }
-    return true;
+    return parsePricesJson(doc, outData, count, tickers, tickerCount);
 }
 
-bool fetch_history(const TickerConfig& ticker, HistoryBuffer& history) {
+bool fetch_history(const TickerConfig& ticker, HistoryBuffer& history, CryptoHttp* http) {
     String url = buildMarketChartUrl(ticker);
 
     JsonDocument doc;
-    if (!httpGetJson(url, doc)) {
+    if (!fetchJson(url, doc, http)) {
         return false;
     }
 
-    JsonArray prices = doc["prices"].as<JsonArray>();
-    if (prices.isNull() || prices.size() == 0) {
+    bool ok = parseHistoryJson(doc, history);
+    if (!ok) {
         Serial.println("[HTTP] market_chart returned no prices");
         return false;
-    }
-
-    history.reset();
-
-    // The market_chart endpoint returns an array of [timestamp_ms, price].
-    // We downsample to HISTORY_POINTS by taking every Nth point so the
-    // buffer contains a representative time series without exceeding
-    // the fixed allocation.
-    size_t n    = prices.size();
-    size_t step = (n > HISTORY_POINTS) ? (n / HISTORY_POINTS) : 1;
-    for (size_t i = 0; i < n; i += step) {
-        JsonArray point = prices[i].as<JsonArray>();
-        if (point.size() >= 2) {
-            history.push(point[1].as<float>());
-        }
-    }
-
-    // If the step skipped the final (most recent) point, append it.
-    if (n > 0 && (n - 1) % step != 0) {
-        JsonArray last = prices[n - 1].as<JsonArray>();
-        if (last.size() >= 2) {
-            history.push(last[1].as<float>());
-        }
     }
 
     Serial.printf("[HTTP] Fetched %u history points for %s\n",
