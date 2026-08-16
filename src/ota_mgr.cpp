@@ -3,54 +3,63 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
-#include <Update.h>
 #include <WiFi.h>
+// Arduino core 2.x wraps the IDF cert bundle as arduino_esp_crt_bundle_attach
+// (WiFiClientSecure/src/esp_crt_bundle.h). This is the same trust store the
+// rest of the app uses for HTTPS, so TLS behaviour is unchanged.
+#include <esp_crt_bundle.h>
+#include <esp_http_client.h>
+#include <esp_https_ota.h>
 #include <esp_ota_ops.h>
 #include <esp_task_wdt.h>
 #include <mbedtls/sha256.h>
 
 #include "app_config.h"
+#include "ota_utils.h"
 
 namespace cryptoapp {
 
 namespace {
 
-// Manifest JSON fields
-constexpr char MANIFEST_VERSION[]      = "version";
-constexpr char MANIFEST_FIRMWARE_URL[] = "firmware_url";
-constexpr char MANIFEST_SHA256[]       = "sha256";
-constexpr int  HTTP_CONNECT_TIMEOUT_MS = 5000;
-constexpr int  HTTP_READ_TIMEOUT_MS    = 8000;
+constexpr int HTTP_CONNECT_TIMEOUT_MS = 5000;
+constexpr int HTTP_READ_TIMEOUT_MS    = 8000;
 
-// Compare two semantic version strings "major.minor.patch".
-// Returns:
-//   > 0 if a > b
-//   0 if a == b
-//   < 0 if a < b
-int compareVersions(const char* a, const char* b) {
-    int ma = atoi(a);
-    int mb = atoi(b);
-    if (ma != mb) return ma - mb;
+// State carried through the HTTPS OTA HTTP client events. The event
+// handler hashes each received firmware chunk while esp_https_ota_perform()
+// streams it to the OTA partition, so the SHA-256 from the manifest is
+// verified in a single download pass.
+struct OtaDownloadState {
+    mbedtls_sha256_context shaCtx;
+    size_t                 bytesReceived;
+};
 
-    // Skip to minor
-    const char* pa = strchr(a, '.');
-    const char* pb = strchr(b, '.');
-    if (!pa || !pb) return 0;
-    pa++;
-    pb++;
+// HTTP client event handler: feeds every received payload chunk into the
+// running SHA-256 context while esp_https_ota streams the image to flash.
+esp_err_t otaHttpEventHandler(esp_http_client_event_t* evt) {
+    OtaDownloadState* state = static_cast<OtaDownloadState*>(evt->user_data);
+    if (state == nullptr) {
+        return ESP_OK;
+    }
 
-    int va = atoi(pa);
-    int vb = atoi(pb);
-    if (va != vb) return va - vb;
-
-    // Skip to patch
-    pa = strchr(pa, '.');
-    pb = strchr(pb, '.');
-    if (!pa || !pb) return 0;
-    pa++;
-    pb++;
-
-    return atoi(pa) - atoi(pb);
+    switch (evt->event_id) {
+        case HTTP_EVENT_ON_DATA:
+            if (evt->data_len > 0) {
+                mbedtls_sha256_update(
+                    &state->shaCtx, static_cast<const unsigned char*>(evt->data), evt->data_len);
+                state->bytesReceived += evt->data_len;
+                Serial.printf("[OTA] Downloaded %u bytes\n", (unsigned)state->bytesReceived);
+            }
+            break;
+        case HTTP_EVENT_ON_FINISH:
+            if (state->bytesReceived > 0) {
+                Serial.printf("[OTA] HTTP download finished (%u bytes)\n",
+                              (unsigned)state->bytesReceived);
+            }
+            break;
+        default:
+            break;
+    }
+    return ESP_OK;
 }
 
 }  // namespace
@@ -90,7 +99,7 @@ OtaManager::CheckResult OtaManager::checkForUpdate(const String& manifestUrl) {
         return CheckResult::ERROR;
     }
 
-    const char* remoteVersion = doc[MANIFEST_VERSION] | "";
+    const char* remoteVersion = otaManifestVersion(doc);
     if (strlen(remoteVersion) == 0) {
         Serial.println("[OTA] Manifest missing version field");
         return CheckResult::ERROR;
@@ -103,14 +112,16 @@ OtaManager::CheckResult OtaManager::checkForUpdate(const String& manifestUrl) {
         return CheckResult::UP_TO_DATE;
     }
 
-    // Store the firmware URL and SHA-256 for the caller to use with
-    // performUpdate().
-    _firmwareUrl = doc[MANIFEST_FIRMWARE_URL] | "";
-    _sha256      = doc[MANIFEST_SHA256] | "";
-    if (_firmwareUrl.length() == 0 || _sha256.length() == 0) {
+    OtaManifest manifest;
+    if (!parseOtaManifest(doc, manifest)) {
         Serial.println("[OTA] Manifest missing firmware_url or sha256");
         return CheckResult::ERROR;
     }
+
+    // Store the firmware URL and SHA-256 for the caller to use with
+    // performUpdate().
+    _firmwareUrl = manifest.firmwareUrl;
+    _sha256      = manifest.sha256;
 
     Serial.println("[OTA] Update available");
     return CheckResult::UPDATE_AVAILABLE;
@@ -124,95 +135,91 @@ bool OtaManager::performUpdate(const String& firmwareUrl, const String& sha256) 
 
     Serial.printf("[OTA] Starting update from %s\n", firmwareUrl.c_str());
 
-    // Set up the Update library to write to the OTA flash partition.
-    if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
-        Serial.printf("[OTA] Update.begin failed: %s\n", Update.errorString());
+    // Download, verify (SHA-256), and flash in a single streaming pass
+    // using the ESP-IDF HTTPS OTA API. The event handler continuously
+    // hashes the received stream while esp_https_ota_perform() writes it
+    // to the next OTA partition. Aborting on any failure leaves the
+    // previously working partition untouched.
+    OtaDownloadState state = {};
+    mbedtls_sha256_init(&state.shaCtx);
+    mbedtls_sha256_starts(&state.shaCtx, 0);  // 0 = SHA-256 (not 224)
+
+    esp_http_client_config_t httpConfig = {};
+    httpConfig.url                      = firmwareUrl.c_str();
+    httpConfig.event_handler            = otaHttpEventHandler;
+    httpConfig.user_data                = &state;
+    // Bound every network read so a slow or dead connection can never
+    // block the main loop indefinitely.
+    httpConfig.timeout_ms = HTTP_READ_TIMEOUT_MS;
+    httpConfig.user_agent = "ESP32";
+    // Verify the server certificate against the system cert bundle —
+    // the same trust store the rest of the app uses for HTTPS.
+    httpConfig.crt_bundle_attach = arduino_esp_crt_bundle_attach;
+    // GitHub release assets reply with a 302 redirect to the asset CDN.
+    // disable_auto_redirect defaults to false, so esp_http_client follows
+    // the redirect automatically (no manual follow needed).
+    httpConfig.disable_auto_redirect = false;
+
+    esp_https_ota_config_t otaConfig = {};
+    otaConfig.http_config            = &httpConfig;
+
+    esp_https_ota_handle_t otaHandle = nullptr;
+    esp_err_t              err       = esp_https_ota_begin(&otaConfig, &otaHandle);
+    if (err != ESP_OK) {
+        Serial.printf("[OTA] esp_https_ota_begin failed: %s\n", esp_err_to_name(err));
+        mbedtls_sha256_free(&state.shaCtx);
         return false;
     }
 
-    Update.onProgress([](uint8_t progress, uint8_t total) {
-        Serial.printf("[OTA] Flash progress: %u/%u\n", progress, total);
-    });
-
-    // Download, verify (SHA-256), and flash in a single streaming pass.
-    mbedtls_sha256_context shaCtx;
-    mbedtls_sha256_init(&shaCtx);
-    mbedtls_sha256_starts(&shaCtx, 0);  // 0 = SHA-256 (not 224)
-
-    HTTPClient http;
-    http.begin(firmwareUrl);
-    http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
-    http.setTimeout(HTTP_READ_TIMEOUT_MS);
-    // The firmware binary is served behind the same 302 redirect from
-    // the GitHub release asset CDN; follow it so the download succeeds.
-    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-    http.addHeader("User-Agent", "ESP32");
-    int httpCode = http.GET();
-
-    if (httpCode != HTTP_CODE_OK) {
-        Serial.printf("[OTA] Download failed: HTTP %d\n", httpCode);
-        http.end();
-        mbedtls_sha256_free(&shaCtx);
-        Update.end();
-        return false;
+    // Log the remote image's embedded version for diagnostics.
+    esp_app_desc_t appDesc = {};
+    if (esp_https_ota_get_img_desc(otaHandle, &appDesc) == ESP_OK && appDesc.version[0] != '\0') {
+        Serial.printf("[OTA] Remote image version: %s\n", appDesc.version);
     }
 
-    WiFiClient* stream = http.getStreamPtr();
-    uint8_t     buffer[512];
-    size_t      totalRead = 0;
-    bool        ok        = true;
-
-    while (http.connected()) {
-        // Wait for data to be available, with a timeout.
-        if (!stream->available()) {
-            // Yield to the WiFi stack and retry.
-            delay(1);
-            continue;
-        }
-
-        size_t bytesRead = stream->read(buffer, sizeof(buffer));
-        if (bytesRead > 0) {
-            mbedtls_sha256_update(&shaCtx, buffer, bytesRead);
-            if (Update.write(buffer, bytesRead) != bytesRead) {
-                Serial.printf("[OTA] Write failed: %s\n", Update.errorString());
-                ok = false;
-                break;
-            }
-            totalRead += bytesRead;
+    // Stream the firmware: esp_https_ota_perform() must be called in a
+    // loop until it stops returning ESP_ERR_HTTPS_OTA_IN_PROGRESS.
+    while (true) {
+        err = esp_https_ota_perform(otaHandle);
+        if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+            break;
         }
     }
 
-    http.end();
-
-    // Finalize the hash.
+    // Finalize the hash now so every failure path below has already
+    // released the mbedtls context.
     uint8_t computedHash[32];
-    mbedtls_sha256_finish(&shaCtx, computedHash);
-    mbedtls_sha256_free(&shaCtx);
+    mbedtls_sha256_finish(&state.shaCtx, computedHash);
+    mbedtls_sha256_free(&state.shaCtx);
 
-    // Convert computed hash to lowercase hex string for comparison.
-    char computedHex[65];
-    for (int i = 0; i < 32; i++) {
-        snprintf(computedHex + i * 2, 3, "%02x", computedHash[i]);
+    if (err != ESP_OK) {
+        Serial.printf("[OTA] esp_https_ota_perform failed: %s\n", esp_err_to_name(err));
+        esp_https_ota_abort(otaHandle);
+        return false;
     }
-    computedHex[64] = '\0';
 
-    Serial.printf("[OTA] Downloaded %u bytes\n", (unsigned)totalRead);
+    if (!esp_https_ota_is_complete_data_received(otaHandle)) {
+        Serial.println("[OTA] Incomplete image received - aborting update");
+        esp_https_ota_abort(otaHandle);
+        return false;
+    }
+
+    Serial.printf("[OTA] Downloaded %u bytes\n", (unsigned)state.bytesReceived);
+
+    char computedHex[65];
+    sha256ToHex(computedHash, computedHex);
     Serial.printf("[OTA] Computed SHA-256: %s\n", computedHex);
     Serial.printf("[OTA] Expected SHA-256: %s\n", sha256.c_str());
 
     if (strcmp(computedHex, sha256.c_str()) != 0) {
         Serial.println("[OTA] SHA-256 mismatch - aborting update");
-        Update.end();
+        esp_https_ota_abort(otaHandle);
         return false;
     }
 
-    if (!ok) {
-        Update.end();
-        return false;
-    }
-
-    if (!Update.end()) {
-        Serial.printf("[OTA] Update.end failed: %s\n", Update.errorString());
+    err = esp_https_ota_finish(otaHandle);
+    if (err != ESP_OK) {
+        Serial.printf("[OTA] esp_https_ota_finish failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
