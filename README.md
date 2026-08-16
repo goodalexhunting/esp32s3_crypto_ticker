@@ -111,25 +111,54 @@ pio run -e lilygo-t-display-s3 -t upload
 
 > The web configuration pages are embedded in the firmware (`include/embedded_ui.h`), so there is no filesystem image to build or upload — a single `upload` flashes everything.
 
+## Testing
+
+The project has three test tiers:
+
+| Tier | Where it runs | What it covers |
+|------|---------------|----------------|
+| **Unit** | Host (no board), CI | Pure logic: semantic version comparison, SHA-256-to-hex, OTA manifest parsing, CoinGecko URL building + JSON parsing (including history downsampling edge cases), the `HistoryBuffer` ring buffer, and `ConfigManager` add/remove/move/reset/persistence with a fake NVS |
+| **Integration** | Host (no board), CI | `fetch_prices`/`fetch_history` end-to-end with an injected fake HTTP transport; the full `WifiManager` state machine, captive-portal redirect, `/connect` validation and credential truncation against fake WiFi/WebServer/DNSServer/NVS |
+| **Hardware-in-the-loop** | Real ESP32-S3 (manual) | Captive-portal join flow, OTA download/checksum/reboot/rollback, the ticker config REST API, and real CoinGecko data — see `test_hw/` |
+
+### Host tests (no board required)
+
+```sh
+# Build + run the native unit/integration suites
+pio test -e native
+```
+
+The `[env:native]` environment compiles each test in `test/test_<name>/` as a standalone binary against the mocks in `test/mocks/` (which shadow `<Arduino.h>`, `<WiFi.h>`, `<WebServer.h>`, `<DNSServer.h>`, `<Preferences.h>` and `<HTTPClient.h>`).
+
+In CI (`.github/workflows/build.yml`) the `test` job runs on **pushes to `staging` and `prod`**, gating both the release candidates and the production releases on the full suite passing. PR builds still compile the firmware (the `build` job proceeds when `test` is skipped); a failed test run on a `staging` or `prod` push blocks the build — and therefore blocks the release.
+
+### Hardware-in-the-loop tests
+
+Real-device tests (captive portal, OTA end-to-end, config API, live CoinGecko) are documented in [`test_hw/README.md`](test_hw/README.md) and require pytest + a flashed device on your network. They are **not** part of the CI host-test job.
+
 ## Project Layout
 
 - `src/main.cpp` — boot flow, WiFi/config wiring, main loop, OTA check trigger.
 - `src/wifi_mgr.cpp` — WiFi manager: NVS credentials, AP mode + captive portal + QR, mDNS, reconnection.
 - `src/config_mgr.cpp` — ticker configuration list, NVS persistence (`ticker_cfg`), revision tracking.
 - `src/config_server.cpp` — async HTTP configuration page + JSON API (`ConfigServer`, ESPAsyncWebServer + op queue).
-- `src/crypto.cpp` — CoinGecko fetches: current prices, 24h changes, historical `market_chart`.
+- `src/crypto.cpp` — CoinGecko fetches: current prices, 24h changes, historical `market_chart` (uses the injectable `CryptoHttp` transport, see `include/crypto.h`).
+- `src/crypto_utils.cpp` — pure helpers for `src/crypto.cpp`: URL building and CoinGecko JSON parsing (host-tested in `test/test_crypto_utils/`).
 - `src/history.cpp` — fixed-size price ring buffers (144 points/ticker).
 - `src/display.cpp` — rendering: prices table, ticker detail view with graph, API status indicator.
 - `src/display_cycle.cpp` — display-cycle navigation state (single source of truth).
 - `src/display_power.cpp` — backlight/panel power state machine, button debouncing, deep-sleep hook.
 - `src/api_health.cpp` — rolling API health history (green/yellow/red).
 - `src/ota_mgr.cpp` — hourly OTA manifest check, HTTPS download, SHA-256 verification, A/B flashing, boot self-test verification (rollback cancel + watchdog disarm).
+- `src/ota_utils.cpp` — pure OTA helpers: semantic version comparison, SHA-256-to-hex, manifest JSON parsing (host-tested in `test/test_ota_utils/`).
 - `src/layout_mgr.cpp` — grid-based layout helper.
 - `src/qr_display.cpp` — QR rendering for the AP-mode setup screen.
 - `include/app_config.h` — central configuration (screen size, `FW_VERSION`, mDNS hostname, OTA manifest URL, GitHub Pages URL, default tickers, timing).
 - `include/embedded_ui.h` — the configuration and WiFi setup pages as PROGMEM strings embedded in the firmware.
 - `site/` — the GitHub Pages landing page; the device redirects `http://crypto-ticker.local` here and passes its own address via `?device=`.
-- `.github/workflows/build.yml` — CI build (`dev`/`staging`) + auto-published production releases and GitHub Pages deploy on `prod`.
+- `.github/workflows/build.yml` — CI: host unit/integration tests (`pio test -e native`), build (`dev`/`staging`) + auto-published production releases and GitHub Pages deploy on `prod`.
+- `test/` — host-side unit/integration test suites and the mocks that shadow the Arduino/ESP32 APIs for `pio test -e native`.
+- `test_hw/` — hardware-in-the-loop test scripts (captive portal, OTA end-to-end, config API, real CoinGecko); see `test_hw/README.md`.
 
 ## Known Limitations
 
