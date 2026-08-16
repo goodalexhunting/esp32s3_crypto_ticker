@@ -11,7 +11,9 @@ namespace cryptoapp {
  *
  * Checks a remote version manifest, compares versions, downloads the
  * firmware via HTTPS, verifies its SHA-256 checksum, and installs it
- * using the ESP32 OTA partition mechanism.
+ * using the Espressif ESP-IDF esp_https_ota library (which performs the
+ * flash write into the next OTA partition and switches the boot
+ * partition on success).
  *
  * A failed OTA leaves the existing firmware operational.
  */

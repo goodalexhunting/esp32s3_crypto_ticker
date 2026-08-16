@@ -44,9 +44,14 @@ constexpr char FW_VERSION[] = FW_VERSION_STR_IMPL(FW_VERSION_STR);
 // remote version to the installed one, and downloads the firmware only
 // when a newer version exists. The manifest is hosted as a GitHub Release
 // asset (see .github/workflows/build.yml).
+#ifndef OTA_MANIFEST_URL
+// Test builds (pio test -e native) override this macro to point the OTA
+// manager at a local fixture server; the firmware uses the production
+// GitHub release asset URL.
 constexpr char OTA_MANIFEST_URL[] =
     "https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest/download/"
     "ota_manifest.json";
+#endif
 
 // How often the OTA manifest is polled while the device is running
 // (connected to WiFi). The first check happens shortly after boot so a

@@ -6,3 +6,4 @@ arduino/libraries/*
 .vscode
 lib
 TASKS.md
+__pycache__/
