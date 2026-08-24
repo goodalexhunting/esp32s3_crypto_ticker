@@ -69,15 +69,17 @@ API endpoints: `GET /` (redirect to the GitHub Pages landing page), `GET /config
 3. If the remote is newer, it downloads `firmware.bin`, verifies the SHA-256 checksum, flashes the **inactive A/B partition**, and reboots.
 4. The check runs on a fixed hourly schedule in `loop()` and never blocks the ticker — if the update server is unavailable the device just continues normal operation and retries at the next interval.
 
-### A/B firmware slots and rollback protection
+### Firmware slots: factory fallback + A/B OTA, and rollback protection
 
-The device uses the ESP32 A/B (dual-slot) OTA layout — `app0`/`app1` in `partitions.csv` — so the running firmware is never overwritten in place:
+The device uses a three-slot layout in `partitions.csv`: a **factory** app slot plus two OTA slots (`ota_0`/`ota_1`), so the running firmware is never overwritten in place:
 
-- **Partition A** is the active firmware. **Partition B** receives the downloaded release, so a failed download or a corrupted image can never damage the working partition.
+- **OTA slot A** is the active firmware. **OTA slot B** receives the downloaded release, so a failed download or a corrupted image can never damage the working partition.
 - After the new image is flashed, the bootloader boots it while the boot is still "pending".
 - On boot, the app arms a **30-second hardware task watchdog** and only calls the explicit self-test verification (`OtaManager::selfTestVerification()`, which cancels the pending rollback and disarms the watchdog) once init completes successfully.
-- If the new firmware fails to initialise — or never reaches the self-test call within 30 seconds — the watchdog forcibly reboots the chip and the **bootloader rolls back to the previously working partition**. This completely prevents bricking.
+- If the new firmware fails to initialise — or never reaches the self-test call within 30 seconds — the watchdog forcibly reboots the chip and the **bootloader rolls back to the other OTA slot**. This completely prevents bricking.
 - Once the self-test passes, the updated partition permanently becomes the active firmware.
+
+The **factory partition is the true last-resort fallback**: it can never be overwritten by OTA and is booted when no OTA slot is valid (first boot, or both slots failed). Because OTA cannot touch it, it holds whatever firmware was current at the last USB reflash — refresh it intentionally with `pio run -e lilygo-t-display-s3 -t upload`, not as part of the release flow.
 
 The Arduino framework ships a prebuilt ESP-IDF SDK whose bootloader already enables rollback tracking (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`), which is what the bootloader uses to revert to the previously working partition when the self-test never completes.
 

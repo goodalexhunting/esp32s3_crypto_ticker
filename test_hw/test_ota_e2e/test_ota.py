@@ -4,12 +4,16 @@
 
 Prereq: a flashed device on the same network as the host. The firmware must
 have been built with an OTA manifest URL pointing at the local fixture
-server, e.g.:
+server, and the fixture's TLS certificate pinned as the trusted CA (the
+device verifies OTA connections against OTA_CA_CERT_PEM, see
+include/ota_certs.h). Generate a cert first, then build, e.g.:
 
-    pio run -e lilygo-t-display-s3 \
-        -DOTA_MANIFEST_URL=https://<host-ip>:8443/ota_manifest.json
+    openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=<host-ip>" \
+        -keyout /tmp/ota_fix.key -out /tmp/ota_fix.pem
+    PLATFORMIO_BUILD_FLAGS="-DOTA_MANIFEST_URL=https://<host-ip>:8443/ota_manifest.json -DOTA_CA_CERT_PEM=\"$(cat /tmp/ota_fix.pem)\"" \
+        pio run -e lilygo-t-display-s3
 
-Start the fixture server first (see ota_server.py), then run:
+Start the fixture server with that same cert (see ota_server.py), then run:
 
     pytest -s test_hw/test_ota_e2e/test_ota.py \
         --device 192.168.1.50 --ota-url https://<host-ip>:8443

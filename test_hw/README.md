@@ -38,10 +38,15 @@ python test_hw/test_ota_e2e/ota_server.py --firmware test_hw/test_ota_e2e/fw.bin
   --version 9.9.9 --port 8443
 ```
 
-> **NOTE:** the device firmware must be compiled with
-> `-DOTA_MANIFEST_URL=https://<local-server-ip>:8443/ota_manifest.json` so the
-> OTA manager polls your fixture server instead of the production GitHub
-> release asset. See the test docstring in `test_ota.py` for exact flags.
+> **NOTE:** the device firmware must be compiled with an OTA manifest URL
+> pointing at your fixture server (`-DOTA_MANIFEST_URL=...`) so the OTA
+> manager polls it instead of the production GitHub release asset. The
+> device verifies OTA TLS connections against the pinned CA in
+> `include/ota_certs.h` (`OTA_CA_CERT_PEM`), so the fixture's self-signed
+> certificate must also be embedded in the build via `-DOTA_CA_CERT_PEM`.
+> Generate the cert first, then build with `PLATFORMIO_BUILD_FLAGS` and
+> start the server with `--cert/--key` using that same cert. See the test
+> docstring in `test_ota.py` for exact flags.
 
 ## Test matrix
 
