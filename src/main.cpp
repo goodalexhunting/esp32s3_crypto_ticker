@@ -297,7 +297,9 @@ void loop() {
                 histories[i].reset();
             }
             fetchAllHistory();
-            renderCurrentCycle();
+            // Refresh prices too: a move/add pairs the wrong label with the
+            // old data otherwise (renders on success, shows the error on failure).
+            attemptUpdate();
         }
 
         // Firmware update check, deferred out of setup() and run shortly

@@ -133,7 +133,7 @@ void ConfigServer::handleConfigPage(AsyncWebServerRequest* request) {
 void ConfigServer::handleApiTickers(AsyncWebServerRequest* request) {
     ConfigOp op;
     op.type    = OpType::LIST;
-    op.request = request;
+    op.request = request->pause();
     if (!enqueue(op)) {
         request->send(503, "text/plain", "Server busy");
     }
@@ -147,7 +147,7 @@ void ConfigServer::handleApiAdd(AsyncWebServerRequest* request) {
 
     ConfigOp op;
     op.type    = OpType::ADD;
-    op.request = request;
+    op.request = request->pause();
     op.label   = request->arg("label");
     op.apiId   = request->arg("apiId");
     op.quote   = request->arg("quote");
@@ -168,7 +168,7 @@ void ConfigServer::handleApiRemove(AsyncWebServerRequest* request) {
 
     ConfigOp op;
     op.type    = OpType::REMOVE;
-    op.request = request;
+    op.request = request->pause();
     op.id      = (size_t)request->arg("id").toInt();
 
     if (!enqueue(op)) {
@@ -184,7 +184,7 @@ void ConfigServer::handleApiMove(AsyncWebServerRequest* request) {
 
     ConfigOp op;
     op.type    = OpType::MOVE;
-    op.request = request;
+    op.request = request->pause();
     op.from    = (size_t)request->arg("from").toInt();
     op.to      = (size_t)request->arg("to").toInt();
 
@@ -196,7 +196,7 @@ void ConfigServer::handleApiMove(AsyncWebServerRequest* request) {
 void ConfigServer::handleApiReset(AsyncWebServerRequest* request) {
     ConfigOp op;
     op.type    = OpType::RESET;
-    op.request = request;
+    op.request = request->pause();
     if (!enqueue(op)) {
         request->send(503, "text/plain", "Server busy");
     }
@@ -211,47 +211,56 @@ void ConfigServer::handleNotFound(AsyncWebServerRequest* request) {
 // ---------------------------------------------------------------------------
 
 void ConfigServer::executeOp(ConfigOp& op) {
-    AsyncWebServerRequest* request = op.request;
-    if (request == nullptr) {
-        return;
+    // The client may have disconnected while the op sat in the queue; the
+    // request object is then gone. The mutation must still apply — only the
+    // response is dropped, otherwise the edit would be lost with the
+    // connection.
+    std::shared_ptr<AsyncWebServerRequest> request = op.request.lock();
+    if (!request) {
+        Serial.println("[CFG] Client disconnected before op ran - applying without response");
     }
+    auto respond = [&request](int code, const char* mime, const String& body) {
+        if (request) {
+            request->send(code, mime, body);
+        }
+    };
 
     switch (op.type) {
         case OpType::LIST: {
-            request->send(200, "application/json", buildTickersJson());
+            respond(200, "application/json", buildTickersJson());
             break;
         }
         case OpType::ADD: {
             if (_config.add(op.label, op.apiId, op.quote, op.color)) {
                 _config.save();
-                request->send(200, "application/json", buildTickersJson());
+                respond(200, "application/json", buildTickersJson());
             } else {
-                request->send(400, "text/plain", "Failed to add ticker (duplicate or list full)");
+                respond(400, "text/plain", "Failed to add ticker (duplicate or list full)");
             }
             break;
         }
         case OpType::REMOVE: {
             if (_config.remove(op.id)) {
                 _config.save();
-                request->send(200, "application/json", buildTickersJson());
+                respond(200, "application/json", buildTickersJson());
             } else {
-                request->send(400, "text/plain", "Invalid id");
+                respond(400, "text/plain", "Invalid id");
             }
             break;
         }
         case OpType::MOVE: {
             if (_config.move(op.from, op.to)) {
                 _config.save();
-                request->send(200, "application/json", buildTickersJson());
+                respond(200, "application/json", buildTickersJson());
             } else {
-                request->send(400, "text/plain", "Invalid move indices");
+                respond(400, "text/plain", "Invalid move indices");
             }
             break;
         }
         case OpType::RESET: {
             // resetToDefaults() saves internally.
             _config.resetToDefaults();
-            request->send(200, "application/json", buildTickersJson());
+            respond(200, "application/json", buildTickersJson());
             break;
         }
     }

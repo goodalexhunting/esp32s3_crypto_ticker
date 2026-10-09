@@ -43,15 +43,18 @@ class ConfigServer {
     enum class OpType : uint8_t { LIST, ADD, REMOVE, MOVE, RESET };
 
     struct ConfigOp {
-        OpType                 type;
-        AsyncWebServerRequest* request = nullptr;
-        String                 label;
-        String                 apiId;
-        String                 quote;
-        uint16_t               color = 0xFFFF;
-        size_t                 id    = 0;
-        size_t                 from  = 0;
-        size_t                 to    = 0;
+        OpType type;
+        // Weak handle to the paused request. ESPAsyncWebServer deletes the
+        // request object when the client disconnects, so the raw pointer must
+        // never outlive the handler: executeOp() locks and checks this first.
+        AsyncWebServerRequestPtr request;
+        String                  label;
+        String                  apiId;
+        String                  quote;
+        uint16_t                color = 0xFFFF;
+        size_t                  id    = 0;
+        size_t                  from  = 0;
+        size_t                  to    = 0;
     };
 
     static constexpr size_t OP_QUEUE_SIZE = 8;
