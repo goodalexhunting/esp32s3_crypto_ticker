@@ -80,13 +80,7 @@ Pure logic is deliberately extracted into `*_utils.cpp` modules (`crypto_utils`,
 
 Note the firmware-only test seams: `OTA_MANIFEST_URL` is an `#ifndef` macro in `app_config.h` so a build flag can redirect OTA checks to a local fixture server, and `OTA_CA_CERT_PEM` in `include/ota_certs.h` can be overridden so the device trusts the fixture server's self-signed TLS cert (see `test_hw/README.md`).
 
-## Working Rules (from `.clinerules/`)
 
-- **Autonomy**: complete tasks without stopping for permission or minor ambiguity; make reasonable engineering decisions. Ask the user only for: directly contradictory requirements, materially different outcomes of a destructive migration, missing credentials/secrets, undeterminable hardware capability, a fundamentally different design choice, or risk of destroying data/history.
-- **Architecture**: don't introduce new architectural patterns without a clear reason; no speculative refactoring unrelated to the task; don't rewrite functioning code just because another implementation could be cleaner; prefer extending existing functionality; keep business logic, presentation, and data access separate.
-- **Git**: inspect the working tree before starting; use `--no-pager` on git commands; work around existing changes rather than over them — stop and report only if they genuinely conflict.
-- **CI/CD**: never publish GitHub Releases from `dev` or `staging`; keep firmware version, GitHub Release version, and OTA manifest version consistent; don't redesign the versioning convention without inspecting the existing CI configuration first.
-- **Style**: match surrounding naming/formatting; small focused functions; prefer the standard loop: inspect → edit → build → diagnose → fix → test → review → commit.
 
 ## Known Limitations (design constraints, not bugs)
 
@@ -95,3 +89,17 @@ Note the firmware-only test seams: `OTA_MANIFEST_URL` is an `#ifndef` macro in `
 - CoinGecko allows a single `vs_currencies` per request, so one batch price fetch shares a quote currency; per-ticker quotes apply only to per-ticker detail/history fetches.
 - History is not persisted across reboot — it is refetched on boot.
 - ESPAsyncWebServer/AsyncTCP are LGPL-3.0 (see README Licenses).
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs for this repo live as GitHub issues, driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles map 1:1 to GitHub labels of the same name (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.
