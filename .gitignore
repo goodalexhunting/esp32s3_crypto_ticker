@@ -1,9 +1,34 @@
-.pio
-arduino/libraries/*
-.git
-.DS_Store
+# --- PlatformIO & C++ Embedded Build Artifacts ---
+.pio/
+.pioenvs/
 *.bin
-.vscode
-lib
-TASKS.md
+*.elf
+*.hex
+*.o
+*.d
+*.a
+
+# --- Claude Code CLI (Local Sandbox State) ---
+.claude/
+
+# --- IDE & Desktop Filesystem Cache ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Python HIL Integration Testing Cache ---
+.pytest_cache/
 __pycache__/
+*.pyc
+
+# --- Temporary/Local Tracking Surfaces ---
+TASKS.md
+lib/
+
+# --- STRICT EXPLICIT ALLOWANCES ---
+# Always commit project configurations and specific domain documentation
+! docs/
+! CLAUDE.md
+! partitions.csv
+! platformio.ini

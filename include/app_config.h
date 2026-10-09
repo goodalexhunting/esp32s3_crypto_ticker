@@ -128,7 +128,11 @@ constexpr uint32_t HISTORY_BACKFILL_DAYS      = 7;              // CoinGecko mar
 // constantly-lit panel, the display dims after an idle period and turns
 // fully off (panel sleep + zero backlight) after a longer idle period.
 // Any of the wake buttons turns it back on and restarts the timers.
-constexpr bool     DISPLAY_POWER_ENABLED   = true;
+// Debug seam: build with -DDISPLAY_POWER_ENABLED=0 to keep the display
+// permanently lit (e.g. while diagnosing the device over serial).
+#ifndef DISPLAY_POWER_ENABLED
+constexpr bool DISPLAY_POWER_ENABLED = true;
+#endif
 constexpr uint8_t  DISPLAY_FULL_BRIGHTNESS = 150;  // matches the previous hardcoded value
 constexpr uint8_t  DISPLAY_DIM_BRIGHTNESS  = 10;
 constexpr uint32_t DISPLAY_DIM_TIMEOUT_MS  = 30UL * 1000UL;   // ON -> DIMMED
@@ -145,7 +149,11 @@ constexpr uint8_t PIN_BUTTON_2 = 14;
 // the WiFi radio and the main loop are powered down to minimise draw.
 // A press of either wake button reboots the ESP32, which reconnects to
 // WiFi and refreshes the crypto prices via the normal boot path.
+// Debug seam: build with -DDEVICE_DEEP_SLEEP_ENABLED=0 to keep the device
+// (and its USB serial port) alive indefinitely while diagnosing.
+#ifndef DEVICE_DEEP_SLEEP_ENABLED
 constexpr bool DEVICE_DEEP_SLEEP_ENABLED = true;
+#endif
 
 // EXT1 wake mask for the wake buttons (both are RTC GPIOs on the S3).
 // GPIO0 and GPIO14, active-low with internal pull-ups.

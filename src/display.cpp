@@ -155,7 +155,11 @@ void drawCoinTable(const Rect& content, const ConfigManager& config) {
     // Row height adapts to the available space when the screen is smaller
     // than the original target display.
     const size_t numCoins = config.count();
-    const int    rowH =
+    if (numCoins == 0) {
+        show_message("No tickers configured");  // also avoids division by zero below
+        return;
+    }
+    const int rowH =
         (table.h - HEADER_H) / numCoins > ROW_H ? ROW_H : (table.h - HEADER_H) / numCoins;
 
     drawTableFrame(table, colSplit);
