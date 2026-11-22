@@ -115,6 +115,16 @@ class String {
     const char* c_str() const {
         return _s.c_str();
     }
+    size_t write(uint8_t byte) {
+        _s += static_cast<char>(byte);
+        return 1;
+    }
+    size_t write(const uint8_t* buffer, size_t size) {
+        if (buffer != nullptr && size > 0) {
+            _s.append(reinterpret_cast<const char*>(buffer), size);
+        }
+        return size;
+    }
     char operator[](unsigned int idx) const {
         return _s[idx];
     }
