@@ -1,5 +1,6 @@
 #include "wifi_mgr.h"
 
+#include <ArduinoJson.h>
 #include <DNSServer.h>
 #include <Preferences.h>
 #include <WiFi.h>
@@ -216,16 +217,18 @@ void WifiManager::clearCredentials() {
 // ---------------------------------------------------------------------------
 
 String WifiManager::buildScanJson() {
-    int16_t networks = WiFi.scanNetworks();
-    String  json     = "[";
+    int16_t      networks = WiFi.scanNetworks();
+    JsonDocument doc;
+    JsonArray    results = doc.to<JsonArray>();
     for (int16_t i = 0; i < networks; i++) {
-        if (i > 0) json += ",";
-        json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) +
-                ",\"encrypt\":" + (WiFi.encryptionType(i) != WIFI_AUTH_OPEN ? "true" : "false") +
-                "}";
+        JsonObject result = results.add<JsonObject>();
+        result["ssid"]    = WiFi.SSID(i);
+        result["rssi"]    = WiFi.RSSI(i);
+        result["encrypt"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
     }
     WiFi.scanDelete();
-    json += "]";
+    String json;
+    serializeJson(doc, json);
     return json;
 }
 

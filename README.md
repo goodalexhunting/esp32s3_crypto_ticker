@@ -65,7 +65,7 @@ API endpoints: `GET /` (redirect to the GitHub Pages landing page), `GET /config
 
 1. Shortly after boot (30s) and then **every hour** while connected, the device fetches the version manifest:
    `https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest/download/ota_manifest.json`
-2. It compares the manifest version against the installed `FW_VERSION` (single authoritative constant in `include/app_config.h`, currently `1.0.0`).
+2. It compares the manifest version against the installed `FW_VERSION` string constant, derived from `FW_VERSION_STR` in `include/app_config.h`.
 3. If the remote is newer, it downloads `firmware.bin`, verifies the SHA-256 checksum, flashes the **inactive A/B partition**, and reboots.
 4. The check runs on a fixed hourly schedule in `loop()` and never blocks the ticker — if the update server is unavailable the device just continues normal operation and retries at the next interval.
 
@@ -88,7 +88,7 @@ The Arduino framework ships a prebuilt ESP-IDF SDK whose bootloader already enab
 `.github/workflows/build.yml` uses the three-stage promotion model **`dev` → `staging` → `prod`**:
 
 - Pushes/PRs to `dev` and `staging` are **build-verified only** — no releases are published.
-- **Every push/merge into `prod`** builds the firmware, then auto-increments the **PATCH** number (e.g. `1.0.0` → `1.0.1`). `MAJOR.MINOR` is user-managed via `FW_VERSION` in `include/app_config.h` and is never auto-incremented.
+- **Every push/merge into `prod`** builds the firmware, then auto-increments the **PATCH** number (e.g. `1.0.0` → `1.0.1`). `MAJOR.MINOR` is user-managed via `FW_VERSION_STR` in `include/app_config.h` and is never auto-incremented.
 - The computed version is baked into the firmware at build time, a git tag `vX.Y.Z` is created, and a stable GitHub Release is published.
 - The GitHub Pages landing page (`site/index.html`) is deployed in the same prod run, so the mDNS → GitHub Pages → device-config flow stays in sync with the releases.
 
@@ -132,7 +132,7 @@ pio test -e native
 
 The `[env:native]` environment compiles each test in `test/test_<name>/` as a standalone binary against the mocks in `test/mocks/` (which shadow `<Arduino.h>`, `<WiFi.h>`, `<WebServer.h>`, `<DNSServer.h>`, `<Preferences.h>` and `<HTTPClient.h>`).
 
-In CI (`.github/workflows/build.yml`) the `test` job runs on **pushes to `staging` and `prod`**, gating both the release candidates and the production releases on the full suite passing. PR builds still compile the firmware (the `build` job proceeds when `test` is skipped); a failed test run on a `staging` or `prod` push blocks the build — and therefore blocks the release.
+In CI (`.github/workflows/build.yml`), native tests run on pushes to `staging` and `prod`, and on pull requests targeting `staging`. A failing test blocks the firmware build. Pull requests targeting `prod` and manual workflow dispatches skip the test job, but still run the firmware build. GitHub Releases and Pages deploy only on pushes to `prod`.
 
 ### Hardware-in-the-loop tests
 
@@ -153,9 +153,9 @@ Real-device tests (captive portal, OTA end-to-end, config API, live CoinGecko) a
 - `src/api_health.cpp` — rolling API health history (green/yellow/red).
 - `src/ota_mgr.cpp` — hourly OTA manifest check, HTTPS download, SHA-256 verification, A/B flashing, boot self-test verification (rollback cancel + watchdog disarm).
 - `src/ota_utils.cpp` — pure OTA helpers: semantic version comparison, SHA-256-to-hex, manifest JSON parsing (host-tested in `test/test_ota_utils/`).
-- `src/layout_mgr.cpp` — grid-based layout helper.
+- `src/layout_manager.cpp` — grid-based layout helper.
 - `src/qr_display.cpp` — QR rendering for the AP-mode setup screen.
-- `include/app_config.h` — central configuration (screen size, `FW_VERSION`, mDNS hostname, OTA manifest URL, GitHub Pages URL, default tickers, timing).
+- `include/app_config.h` — central configuration (screen size, `FW_VERSION_STR`, mDNS hostname, OTA manifest URL, GitHub Pages URL, default tickers, timing).
 - `include/embedded_ui.h` — the configuration and WiFi setup pages as PROGMEM strings embedded in the firmware.
 - `site/` — the GitHub Pages landing page; the device redirects `http://crypto-ticker.local` here and passes its own address via `?device=`.
 - `.github/workflows/build.yml` — CI: host unit/integration tests (`pio test -e native`), build (`dev`/`staging`) + auto-published production releases and GitHub Pages deploy on `prod`.

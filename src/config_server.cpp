@@ -4,6 +4,7 @@
 #include <esp_task_wdt.h>
 
 #include "app_config.h"
+#include "config_utils.h"
 #include "embedded_ui.h"
 
 namespace cryptoapp {
@@ -166,10 +167,16 @@ void ConfigServer::handleApiRemove(AsyncWebServerRequest* request) {
         return;
     }
 
+    size_t id;
+    if (!parseTickerIndex(request->arg("id").c_str(), id)) {
+        request->send(400, "text/plain", "Invalid id");
+        return;
+    }
+
     ConfigOp op;
     op.type    = OpType::REMOVE;
     op.request = request->pause();
-    op.id      = (size_t)request->arg("id").toInt();
+    op.id      = id;
 
     if (!enqueue(op)) {
         request->send(503, "text/plain", "Server busy");
@@ -182,11 +189,19 @@ void ConfigServer::handleApiMove(AsyncWebServerRequest* request) {
         return;
     }
 
+    size_t from;
+    size_t to;
+    if (!parseTickerIndex(request->arg("from").c_str(), from) ||
+        !parseTickerIndex(request->arg("to").c_str(), to)) {
+        request->send(400, "text/plain", "Invalid move indices");
+        return;
+    }
+
     ConfigOp op;
     op.type    = OpType::MOVE;
     op.request = request->pause();
-    op.from    = (size_t)request->arg("from").toInt();
-    op.to      = (size_t)request->arg("to").toInt();
+    op.from    = from;
+    op.to      = to;
 
     if (!enqueue(op)) {
         request->send(503, "text/plain", "Server busy");

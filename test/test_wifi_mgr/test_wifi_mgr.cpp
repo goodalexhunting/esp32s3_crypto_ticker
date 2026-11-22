@@ -259,6 +259,27 @@ void test_handle_scan_returns_valid_json() {
     TEST_ASSERT_FALSE(encrypt1);
 }
 
+void test_handle_scan_escapes_quotes_and_backslashes_in_ssids() {
+    cryptoapp::WifiManager wm;
+    wm.begin();
+
+    mockWiFi.scanSsids      = {"Cafe \"Aroma\"\\wifi"};
+    mockWiFi.scanRssis      = {-52};
+    mockWiFi.scanEncryption = {WIFI_AUTH_WPA2_PSK};
+    mockWiFi.scanResult     = 1;
+
+    server()->call("/scan", HTTP_GET);
+    TEST_ASSERT_EQUAL(200, server()->response.code);
+
+    JsonDocument         doc;
+    DeserializationError err = deserializeJson(doc, server()->response.content);
+    TEST_ASSERT_FALSE(bool(err));
+    JsonArray arr = doc.as<JsonArray>();
+    TEST_ASSERT_EQUAL(1, arr.size());
+    const char* ssid = arr[0]["ssid"].as<const char*>();
+    TEST_ASSERT_EQUAL_STRING("Cafe \"Aroma\"\\wifi", ssid);
+}
+
 void test_handle_not_found_redirects_to_ap_ip() {
     cryptoapp::WifiManager wm;
     wm.begin();
@@ -354,6 +375,7 @@ int main(int, char**) {
 
     RUN_TEST(test_handle_root_serves_embedded_page);
     RUN_TEST(test_handle_scan_returns_valid_json);
+    RUN_TEST(test_handle_scan_escapes_quotes_and_backslashes_in_ssids);
     RUN_TEST(test_handle_not_found_redirects_to_ap_ip);
 
     RUN_TEST(test_force_ap_mode_from_connected);

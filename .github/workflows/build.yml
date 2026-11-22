@@ -36,7 +36,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        run: pip install platformio==6.2.0
 
       - name: Run native unit/integration tests
         run: pio test -e native
@@ -63,10 +63,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        run: pip install platformio==6.2.0
 
       # Compute the production release version only for pushes to prod.
-      # MAJOR.MINOR is read from FW_VERSION in include/app_config.h
+      # MAJOR.MINOR is read from FW_VERSION_STR in include/app_config.h
       # (user-managed, never auto-incremented). PATCH is auto-incremented
       # from the highest existing v<major>.<minor>.x tag; if no such tag
       # exists, PATCH starts at 0 (so the first 1.0.x release is 1.0.0).

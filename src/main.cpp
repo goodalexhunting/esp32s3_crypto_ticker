@@ -308,12 +308,8 @@ void loop() {
         // The check then repeats every OTA_CHECK_INTERVAL_MS (hourly) for
         // the lifetime of the device.
         static constexpr unsigned long OTA_FIRST_CHECK_DELAY_MS = 30UL * 1000UL;
-        static unsigned long           otaCheckAt  = millis() + OTA_FIRST_CHECK_DELAY_MS;
-        static bool                    otaCheckDue = false;
-        if (!otaCheckDue && (long)(millis() - otaCheckAt) >= 0) {
-            otaCheckDue = true;
-        }
-        if (otaCheckDue && (long)(millis() - otaCheckAt) >= 0) {
+        static unsigned long           otaCheckAt = millis() + OTA_FIRST_CHECK_DELAY_MS;
+        if ((long)(millis() - otaCheckAt) >= 0) {
             otaCheckAt += OTA_CHECK_INTERVAL_MS;
             checkForUpdates();
         }

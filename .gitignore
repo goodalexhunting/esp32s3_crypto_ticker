@@ -8,8 +8,10 @@
 *.d
 *.a
 
-# --- Claude Code CLI (Local Sandbox State) ---
+# --- Local agent state ---
 .claude/
+.codex/
+.agents/
 
 # --- IDE & Desktop Filesystem Cache ---
 .vscode/
@@ -26,9 +28,4 @@ __pycache__/
 TASKS.md
 lib/
 
-# --- STRICT EXPLICIT ALLOWANCES ---
-# Always commit project configurations and specific domain documentation
-! docs/
-! CLAUDE.md
-! partitions.csv
-! platformio.ini
+# Project guidance, standards, and domain documentation are tracked by default.

@@ -55,7 +55,8 @@ void test_fetch_prices_fetches_built_url_and_parses() {
     FakeCryptoHttp http;
     http.body = R"({
         "bitcoin": {"usd": 61234.5, "usd_24h_change": 2.31},
-        "solana": {"usd": 145.2, "usd_24h_change": -1.5}
+        "solana": {"usd": 145.2, "usd_24h_change": -1.5},
+        "sui": {"usd": 0.9, "usd_24h_change": 0.7}
     })";
 
     cryptoapp::ConfigManager cfg;
@@ -75,8 +76,7 @@ void test_fetch_prices_fetches_built_url_and_parses() {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.31f, data[0].change24h);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 145.2f, data[1].price);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, -1.5f, data[1].change24h);
-    // Third default ticker (sui) missing from body -> defaults 0.
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, data[2].price);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.9f, data[2].price);
 }
 
 void test_fetch_prices_transport_failure_returns_false() {

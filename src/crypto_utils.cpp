@@ -40,8 +40,11 @@ bool parsePricesJson(const JsonDocument& doc,
     for (size_t i = 0; i < n; i++) {
         const TickerConfig& t    = tickers[i];
         JsonObjectConst     coin = doc[t.apiId].as<JsonObjectConst>();
-        outData[i].price         = coin[t.quote] | 0.0f;
-        outData[i].change24h     = coin[t.quote + "_24h_change"] | 0.0f;
+        if (coin.isNull() || coin[t.quote].isNull()) {
+            return false;
+        }
+        outData[i].price     = coin[t.quote] | 0.0f;
+        outData[i].change24h = coin[t.quote + "_24h_change"] | 0.0f;
     }
     return true;
 }
