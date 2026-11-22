@@ -4,6 +4,8 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 **Prerequisites**: the `gh` CLI installed and authenticated against this repo (`gh auth login`).
 
+Actionable issues, cleanup plans, and implementation specs belong in GitHub Issues, not local Markdown backlogs. Keep repository Markdown for durable guidance, reference material, and architectural decisions. When migrating a local backlog, create or update the GitHub issue with all unfinished work and acceptance criteria, verify the issue link, then remove the local tracking file; retain completed work only when it is useful as durable documentation.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
