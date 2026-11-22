@@ -1,173 +1,89 @@
-# Crypto Ticker
+# ESP32-S3 Crypto Ticker
 
-Self-contained networked crypto ticker for the **LilyGO T-Display-S3** (ESP32-S3).
+A live cryptocurrency price ticker for the [LilyGO T-Display-S3](https://www.lilygo.cc/products/t-display-s3). It shows BTC, SOL, and SUI by default, supports up to eight configurable tickers, and can update its firmware over Wi-Fi.
 
-Forked from [osbock/AssetTicker](https://github.com/osbock/AssetTicker).
+## Install a release
 
-The device shows live cryptocurrency prices from the [CoinGecko API](https://www.coingecko.com/), can be configured over Wi-Fi from your phone or browser, keeps a historical graph for each coin, and can update its own firmware over the air (OTA) from GitHub Releases.
+Download the latest production release from [GitHub Releases](https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest). Releases include:
 
-## Features
+- `firmware.bin` — application firmware.
+- `partitions.bin` — the partition layout used by this firmware.
+- `ota_manifest.json` — version and checksum information used by the device's automatic updater. You do not flash this file.
 
-### Market data (CoinGecko)
+### First installation over USB
 
-- Live prices for **BTC**, **SOL** and **SUI** out of the box — add/remove/reorder tickers freely (up to 8).
-- Brand-colored ticker labels: `$BTC` (yellow), `$SOL` (purple), `$SUI` (cyan).
-- Smart price formatting — up to 3 decimal places (e.g. `$67,234`, `$150.45`, `$0.001`).
-- **24h percentage change** for every ticker, sourced from CoinGecko market data (`include_24hr_change`). Positive changes are shown green, negative red.
+The release files are raw binaries, not a one-click installer. Use Espressif's [esptool](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/) and a USB data cable. The board must have a compatible ESP32-S3 bootloader at the standard flash location. The release does not include a bootloader image, so a completely blank or differently provisioned board may need the source-based PlatformIO installation instead (see [Build from source](#build-from-source)).
 
-### Network web configuration 
+For a board with a compatible bootloader:
 
-- mDNS: the device advertises itself as **`http://crypto-ticker.local`** on your network.
-- **Asynchronous HTTP server** (`ESPAsyncWebServer`): requests are handled off the main loop, so browsing the config page or hitting the API never stalls the ticker's display updates or price fetches.
-- Visiting **`http://crypto-ticker.local`** redirects to the project's **GitHub Pages landing page** (`site/index.html`), which the device passes its own mDNS address to (`?device=crypto-ticker.local`). The landing page links back to **`/config`** — the actual ticker configuration UI served directly by the device.
-- The configuration web UI and the AP-mode WiFi setup page are **embedded in the firmware** (PROGMEM strings in `include/embedded_ui.h`) — there is no LittleFS filesystem image to build or upload. Config changes still go through the firmware's own async JSON API (`/api/tickers`).
-- The async handlers never touch the `ConfigManager` directly — they enqueue operations that the main loop drains, keeping the config state single-threaded and race-free with the display.
-- Configuration persists across reboot in **NVS** (`Preferences`), so nothing is hard-coded into the display logic.
-- Each ticker stores its display label, CoinGecko API ID, quote currency and optional brand colour, so a symbol like `BTC` is never assumed to identify an asset by itself.
+1. Download `firmware.bin` and `partitions.bin` from the same release.
+2. Connect the T-Display-S3 to your computer by USB. Find its serial port (for example, `COM5` on Windows or `/dev/ttyACM0` on Linux).
+3. Install esptool with Python if needed: `python -m pip install esptool`.
+4. Put the board in download mode if it is not detected automatically: hold **BOOT**, press and release **RESET**, then release **BOOT**.
+5. Erase the flash, then write the partition table and firmware at their offsets:
 
-### Ticker cycling and historical graphs
+   ```sh
+   python -m esptool --chip esp32s3 --port PORT erase-flash
+   python -m esptool --chip esp32s3 --port PORT write-flash 0x8000 partitions.bin 0x10000 firmware.bin
+   ```
 
-- The display cycles dynamically from the configuration: **view 0 = the prices table**, views 1..N = one detailed view per configured ticker.
-- Navigate with the device buttons (debounced, wraps around in both directions):
-  - **GPIO0** = previous view
-  - **GPIO14** = next view
-- Each ticker detail view shows the current price, the 24h change, and a **7-day historical graph** (144 points, 5-minute CoinGecko `market_chart` data downsampled into fixed-size ring buffers — no heap allocation).
-- History is fetched on boot and on config changes; every successful price fetch appends to the buffer, so the graph keeps growing without extra API calls.
+   Replace `PORT` with the serial port for your computer. Erasing flash clears saved Wi-Fi credentials and configuration. The firmware image is written to the factory app slot; the partition table reserves two additional slots for future OTA updates.
+6. Reset or power-cycle the board. Continue with [First-time Wi-Fi setup](#first-time-wi-fi-setup).
 
-### Display power management
+If esptool cannot connect, check the USB cable and port, close other programs using the serial port, and retry with the board in download mode. For a completely fresh board, use [Build from source](#build-from-source), which lets PlatformIO supply the matching bootloader and other required images.
 
-- The backlight dims after an idle period and the panel sleeps (then the whole device enters **deep sleep**) to prevent burn-in. Any button press wakes it and forces an immediate price refresh.
+### Updating an existing installation over USB
 
-## First-Time Setup (WiFi)
-
-1. Power on the device. If no WiFi is configured (or the saved network is unreachable), it starts an open access point named `CryptoTicker-XXXX`.
-2. On your phone, join that network — the display shows a **QR code** you can scan to join instantly.
-3. Open a browser — the captive portal should redirect you to `http://192.168.4.1`.
-4. Pick your network from the list (or type the SSID), enter the password, and tap **Connect**.
-5. The device saves the credentials to flash, joins your network, and the ticker starts.
-
-> To reconfigure WiFi later: clear the saved credentials with the serial command `clearwifi` (the device reboots into AP mode), or the AP will re-appear automatically if the saved network becomes unreachable.
-
-## Configuring Tickers
-
-While connected to your network, open **`http://crypto-ticker.local`** (or the device IP) in any desktop or mobile browser. The device redirects you to the project's GitHub Pages landing page, which links back to the configuration UI served by the device at **`/config`**.
-
-- See the currently configured tickers.
-- Add a ticker: display label, CoinGecko API ID (e.g. `bitcoin`, `solana`, `sui`), quote currency (e.g. `usd`, `usdc`), optional colour.
-- Remove, reorder, or reset to the default tickers.
-- Changes are saved to NVS and applied to the display immediately.
-
-API endpoints: `GET /` (redirect to the GitHub Pages landing page), `GET /config` (configuration UI), `GET /api/tickers`, `POST /api/tickers` (add), `DELETE /api/tickers?id=N` (remove), `POST /api/tickers/move` (reorder), `POST /api/tickers/reset`.
-
-## OTA Updates and the Release Pipeline
-
-### How the device updates
-
-1. Shortly after boot (30s) and then **every hour** while connected, the device fetches the version manifest:
-   `https://github.com/goodalexhunting/esp32s3_crypto_ticker/releases/latest/download/ota_manifest.json`
-2. It compares the manifest version against the installed `FW_VERSION` string constant, derived from `FW_VERSION_STR` in `include/app_config.h`.
-3. If the remote is newer, it downloads `firmware.bin`, verifies the SHA-256 checksum, flashes the **inactive A/B partition**, and reboots.
-4. The check runs on a fixed hourly schedule in `loop()` and never blocks the ticker — if the update server is unavailable the device just continues normal operation and retries at the next interval.
-
-### Firmware slots: factory fallback + A/B OTA, and rollback protection
-
-The device uses a three-slot layout in `partitions.csv`: a **factory** app slot plus two OTA slots (`ota_0`/`ota_1`), so the running firmware is never overwritten in place:
-
-- **OTA slot A** is the active firmware. **OTA slot B** receives the downloaded release, so a failed download or a corrupted image can never damage the working partition.
-- After the new image is flashed, the bootloader boots it while the boot is still "pending".
-- On boot, the app arms a **30-second hardware task watchdog** and only calls the explicit self-test verification (`OtaManager::selfTestVerification()`, which cancels the pending rollback and disarms the watchdog) once init completes successfully.
-- If the new firmware fails to initialise — or never reaches the self-test call within 30 seconds — the watchdog forcibly reboots the chip and the **bootloader rolls back to the other OTA slot**. This completely prevents bricking.
-- Once the self-test passes, the updated partition permanently becomes the active firmware.
-
-The **factory partition is the true last-resort fallback**: it can never be overwritten by OTA and is booted when no OTA slot is valid (first boot, or both slots failed). Because OTA cannot touch it, it holds whatever firmware was current at the last USB reflash — refresh it intentionally with `pio run -e lilygo-t-display-s3 -t upload`, not as part of the release flow.
-
-The Arduino framework ships a prebuilt ESP-IDF SDK whose bootloader already enables rollback tracking (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`), which is what the bootloader uses to revert to the previously working partition when the self-test never completes.
-
-### How releases are generated (GitHub Actions)
-
-`.github/workflows/build.yml` uses the three-stage promotion model **`dev` → `staging` → `prod`**:
-
-- Pushes/PRs to `dev` and `staging` are **build-verified only** — no releases are published.
-- **Every push/merge into `prod`** builds the firmware, then auto-increments the **PATCH** number (e.g. `1.0.0` → `1.0.1`). `MAJOR.MINOR` is user-managed via `FW_VERSION_STR` in `include/app_config.h` and is never auto-incremented.
-- The computed version is baked into the firmware at build time, a git tag `vX.Y.Z` is created, and a stable GitHub Release is published.
-- The GitHub Pages landing page (`site/index.html`) is deployed in the same prod run, so the mDNS → GitHub Pages → device-config flow stays in sync with the releases.
-
-Production releases carry three assets: `firmware.bin`, `partitions.bin`, and `ota_manifest.json` (version + firmware URL + SHA-256).
-
-### Rolling out a firmware update
-
-- **Patch release** — just merge into `prod`; CI auto-increments the patch (e.g. `1.0.0` → `1.0.1`) and publishes.
-- **Major/minor release** — bump `MAJOR.MINOR` in `include/app_config.h` on `dev` (e.g. `1.0.1` → `1.1.0`), then promote `dev → staging → prod`. The next push to `prod` publishes `1.1.0`.
-
-## Building
-
-Requires [PlatformIO](https://platformio.org/). Environment: `lilygo-t-display-s3` (espressif32, Arduino framework).
+For a device already running this ticker with its current partition layout, you can manually install a release with esptool without erasing the device:
 
 ```sh
-# Build firmware
-pio run -e lilygo-t-display-s3
+python -m esptool --chip esp32s3 --port PORT write-flash 0x10000 firmware.bin
+```
 
-# Upload firmware to the device
+This updates the factory slot. It preserves the active OTA slot and saved settings. For routine updates, prefer the automatic OTA process described below.
+
+## First-time Wi-Fi setup
+
+1. Power on the device. If it has no saved Wi-Fi network, it starts an open access point named `CryptoTicker-XXXX`.
+2. Join that network on your phone or computer. The display also shows a QR code to make joining easier.
+3. Open the captive portal when prompted, or browse to `http://192.168.4.1`.
+4. Choose your Wi-Fi network (or enter its name), provide the password, and tap **Connect**.
+5. Once connected, the ticker starts and saves the network for future restarts.
+
+If the saved network cannot be reached, the device starts its setup access point again. You can also clear saved Wi-Fi credentials over the serial console with the command `clearwifi`.
+
+## Configure tickers
+
+When the device and your phone or computer are on the same Wi-Fi network, open [http://crypto-ticker.local](http://crypto-ticker.local). If that name does not resolve, use the device's IP address shown by your router. The project page links to the configuration screen hosted by the device.
+
+From the configuration screen you can add, remove, reorder, or reset tickers. Each ticker has a display label, a CoinGecko API ID, a quote currency, and an optional color. For example, the label `BTC` uses the CoinGecko ID `bitcoin`. Up to eight tickers can be configured. Changes are saved and applied without reflashing.
+
+The display cycles through a price overview and a detail view for each ticker. The detail view includes its price, 24-hour change, and recent price history. The buttons move between views. The display dims after inactivity and sleeps to reduce power use; pressing either button wakes it.
+
+## Automatic OTA updates
+
+After connecting to Wi-Fi, the device checks for a release shortly after startup and about once an hour while it remains awake and connected. When a newer release is available, it downloads the firmware, verifies its SHA-256 checksum, and installs it to the inactive OTA slot. The device then restarts into the update. Keep it powered during this process.
+
+The firmware checks that startup completed successfully. If the new version fails its startup check, the bootloader automatically returns to the previously working OTA version. The factory image is a separate recovery fallback and is not changed by OTA updates.
+
+## Troubleshooting and limitations
+
+- **No setup access point appears:** allow the device time to boot, then reset it. If it has working saved Wi-Fi credentials, it joins that network instead of creating an access point.
+- **The local address does not open:** try the device's IP address. Some networks and browsers do not support `.local` names reliably.
+- **Prices are missing or delayed:** the device needs internet access to reach CoinGecko. API rate limits or network outages can temporarily interrupt updates.
+- **Quote currencies:** CoinGecko's batch price endpoint accepts one quote currency per request, so tickers in the overview share a quote currency. Individual ticker detail/history requests use that ticker's configured quote.
+- **History after reboot:** historical graph data is fetched again after startup and is not retained across power cycles.
+
+## Build from source
+
+This section is for people who want to build or install the firmware from the source code. Install [PlatformIO Core](https://platformio.org/install/cli), clone this repository, connect the board by USB, then run:
+
+```sh
 pio run -e lilygo-t-display-s3 -t upload
 ```
 
-> The web configuration pages are embedded in the firmware (`include/embedded_ui.h`), so there is no filesystem image to build or upload — a single `upload` flashes everything.
+PlatformIO builds the firmware and flashes the matching bootloader, partition table, and application. This is the recommended route for a blank board. The embedded configuration pages are included in the firmware; no separate filesystem image is required.
 
-## Testing
+## License
 
-The project has three test tiers:
-
-| Tier | Where it runs | What it covers |
-|------|---------------|----------------|
-| **Unit** | Host (no board), CI | Pure logic: semantic version comparison, SHA-256-to-hex, OTA manifest parsing, CoinGecko URL building + JSON parsing (including history downsampling edge cases), the `HistoryBuffer` ring buffer, and `ConfigManager` add/remove/move/reset/persistence with a fake NVS |
-| **Integration** | Host (no board), CI | `fetch_prices`/`fetch_history` end-to-end with an injected fake HTTP transport; the full `WifiManager` state machine, captive-portal redirect, `/connect` validation and credential truncation against fake WiFi/WebServer/DNSServer/NVS |
-| **Hardware-in-the-loop** | Real ESP32-S3 (manual) | Captive-portal join flow, OTA download/checksum/reboot/rollback, the ticker config REST API, and real CoinGecko data — see `test_hw/` |
-
-### Host tests (no board required)
-
-```sh
-# Build + run the native unit/integration suites
-pio test -e native
-```
-
-The `[env:native]` environment compiles each test in `test/test_<name>/` as a standalone binary against the mocks in `test/mocks/` (which shadow `<Arduino.h>`, `<WiFi.h>`, `<WebServer.h>`, `<DNSServer.h>`, `<Preferences.h>` and `<HTTPClient.h>`).
-
-In CI (`.github/workflows/build.yml`), native tests run on pushes to `staging` and `prod`, and on pull requests targeting `staging`. A failing test blocks the firmware build. Pull requests targeting `prod` and manual workflow dispatches skip the test job, but still run the firmware build. GitHub Releases and Pages deploy only on pushes to `prod`.
-
-### Hardware-in-the-loop tests
-
-Real-device tests (captive portal, OTA end-to-end, config API, live CoinGecko) are documented in [`test_hw/README.md`](test_hw/README.md) and require pytest + a flashed device on your network. They are **not** part of the CI host-test job.
-
-## Project Layout
-
-- `src/main.cpp` — boot flow, WiFi/config wiring, main loop, OTA check trigger.
-- `src/wifi_mgr.cpp` — WiFi manager: NVS credentials, AP mode + captive portal + QR, mDNS, reconnection.
-- `src/config_mgr.cpp` — ticker configuration list, NVS persistence (`ticker_cfg`), revision tracking.
-- `src/config_server.cpp` — async HTTP configuration page + JSON API (`ConfigServer`, ESPAsyncWebServer + op queue).
-- `src/crypto.cpp` — CoinGecko fetches: current prices, 24h changes, historical `market_chart` (uses the injectable `CryptoHttp` transport, see `include/crypto.h`).
-- `src/crypto_utils.cpp` — pure helpers for `src/crypto.cpp`: URL building and CoinGecko JSON parsing (host-tested in `test/test_crypto_utils/`).
-- `src/history.cpp` — fixed-size price ring buffers (144 points/ticker).
-- `src/display.cpp` — rendering: prices table, ticker detail view with graph, API status indicator.
-- `src/display_cycle.cpp` — display-cycle navigation state (single source of truth).
-- `src/display_power.cpp` — backlight/panel power state machine, button debouncing, deep-sleep hook.
-- `src/api_health.cpp` — rolling API health history (green/yellow/red).
-- `src/ota_mgr.cpp` — hourly OTA manifest check, HTTPS download, SHA-256 verification, A/B flashing, boot self-test verification (rollback cancel + watchdog disarm).
-- `src/ota_utils.cpp` — pure OTA helpers: semantic version comparison, SHA-256-to-hex, manifest JSON parsing (host-tested in `test/test_ota_utils/`).
-- `src/layout_manager.cpp` — grid-based layout helper.
-- `src/qr_display.cpp` — QR rendering for the AP-mode setup screen.
-- `include/app_config.h` — central configuration (screen size, `FW_VERSION_STR`, mDNS hostname, OTA manifest URL, GitHub Pages URL, default tickers, timing).
-- `include/embedded_ui.h` — the configuration and WiFi setup pages as PROGMEM strings embedded in the firmware.
-- `site/` — the GitHub Pages landing page; the device redirects `http://crypto-ticker.local` here and passes its own address via `?device=`.
-- `.github/workflows/build.yml` — CI: host unit/integration tests (`pio test -e native`), build (`dev`/`staging`) + auto-published production releases and GitHub Pages deploy on `prod`.
-- `test/` — host-side unit/integration test suites and the mocks that shadow the Arduino/ESP32 APIs for `pio test -e native`.
-- `test_hw/` — hardware-in-the-loop test scripts (captive portal, OTA end-to-end, config API, real CoinGecko); see `test_hw/README.md`.
-
-## Known Limitations
-
-- The configuration web server only runs in station (connected) mode, not in AP mode.
-- CoinGecko allows a single `vs_currencies` per request, so all tickers in one fetch share a quote currency (per-ticker quotes work per ticker detail/history fetch).
-- Historical data is not persisted across reboot (it is refetched on boot).
-
-## Licenses
-
-This project embeds [ESPAsyncWebServer](https://github.com/ESP32Async/ESPAsyncWebServer) and [AsyncTCP](https://github.com/ESP32Async/AsyncTCP) by the ESP32Async org, which are licensed under the **LGPL-3.0** (the ESP32Async fork). The rest of the project retains its original license.
+This project embeds [ESPAsyncWebServer](https://github.com/ESP32Async/ESPAsyncWebServer) and [AsyncTCP](https://github.com/ESP32Async/AsyncTCP), licensed under LGPL-3.0. The rest of the project retains its original license.
