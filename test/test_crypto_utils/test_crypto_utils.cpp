@@ -95,18 +95,14 @@ void test_parse_prices_normal() {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, -1.5f, data[1].change24h);
 }
 
-void test_parse_prices_missing_coin_defaults_zero() {
+void test_parse_prices_missing_coin_fails() {
     JsonDocument doc;
     deserializeJson(doc, R"({"bitcoin": {"usd": 1.0, "usd_24h_change": 0.5}})");
 
     cryptoapp::TickerConfig tickers[2] = {{"BTC", "bitcoin", "usd", 0xFFE0},
                                           {"SOL", "solana", "usd", 0xF81F}};
     cryptoapp::PriceData    data[2]    = {{99.0f, 99.0f}, {99.0f, 99.0f}};
-    TEST_ASSERT_TRUE(cryptoapp::parsePricesJson(doc, data, 2, tickers, 2));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, data[0].price);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, data[0].change24h);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, data[1].price);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, data[1].change24h);
+    TEST_ASSERT_FALSE(cryptoapp::parsePricesJson(doc, data, 2, tickers, 2));
 }
 
 void test_parse_prices_missing_change_field_defaults_zero() {
@@ -120,15 +116,13 @@ void test_parse_prices_missing_change_field_defaults_zero() {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, data[0].change24h);
 }
 
-void test_parse_prices_quote_not_object() {
+void test_parse_prices_missing_quote_fails() {
     JsonDocument doc;
     deserializeJson(doc, R"({"bitcoin": "not-an-object"})");
 
     cryptoapp::TickerConfig tickers[1] = {{"BTC", "bitcoin", "usd", 0xFFE0}};
     cryptoapp::PriceData    data[1]    = {};
-    TEST_ASSERT_TRUE(cryptoapp::parsePricesJson(doc, data, 1, tickers, 1));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, data[0].price);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, data[0].change24h);
+    TEST_ASSERT_FALSE(cryptoapp::parsePricesJson(doc, data, 1, tickers, 1));
 }
 
 void test_parse_prices_writes_at_most_min_count() {
@@ -277,9 +271,9 @@ int main(int, char**) {
     RUN_TEST(test_build_market_chart_url_other_quote);
 
     RUN_TEST(test_parse_prices_normal);
-    RUN_TEST(test_parse_prices_missing_coin_defaults_zero);
+    RUN_TEST(test_parse_prices_missing_coin_fails);
     RUN_TEST(test_parse_prices_missing_change_field_defaults_zero);
-    RUN_TEST(test_parse_prices_quote_not_object);
+    RUN_TEST(test_parse_prices_missing_quote_fails);
     RUN_TEST(test_parse_prices_writes_at_most_min_count);
 
     RUN_TEST(test_parse_history_downsample_fewer_than_limit);
