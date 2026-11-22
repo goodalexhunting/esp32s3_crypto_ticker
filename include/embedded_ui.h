@@ -230,19 +230,41 @@ const char TICKER_CONFIG_HTML[] PROGMEM = R"TICKER(<!DOCTYPE html>
                 el.innerHTML = '<p>No tickers configured.</p>';
                 return;
             }
-            el.innerHTML = tickers.map((t, i) => `
-                <div class="ticker">
-                    <div>
-                        <div class="label">${t.label} / ${t.quote.toUpperCase()}</div>
-                        <div class="meta">${t.apiId}</div>
-                    </div>
-                    <div class="actions">
-                        <button onclick="moveTicker(${i}, ${i - 1})" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
-                        <button onclick="moveTicker(${i}, ${i + 1})" ${i === tickers.length - 1 ? 'disabled' : ''}>&#9660;</button>
-                        <button class="remove" onclick="removeTicker(${i})">Remove</button>
-                    </div>
-                </div>
-            `).join('');
+            const rows = document.createDocumentFragment();
+            tickers.forEach((t, i) => {
+                const row = document.createElement('div');
+                row.className = 'ticker';
+
+                const details = document.createElement('div');
+                const label = document.createElement('div');
+                label.className = 'label';
+                label.textContent = `${t.label} / ${t.quote.toUpperCase()}`;
+                const apiId = document.createElement('div');
+                apiId.className = 'meta';
+                apiId.textContent = t.apiId;
+                details.append(label, apiId);
+
+                const actions = document.createElement('div');
+                actions.className = 'actions';
+                const moveUp = document.createElement('button');
+                moveUp.textContent = '\u25B2';
+                moveUp.disabled = i === 0;
+                moveUp.addEventListener('click', () => moveTicker(i, i - 1));
+                const moveDown = document.createElement('button');
+                moveDown.textContent = '\u25BC';
+                moveDown.disabled = i === tickers.length - 1;
+                moveDown.addEventListener('click', () => moveTicker(i, i + 1));
+                const remove = document.createElement('button');
+                remove.className = 'remove';
+                remove.textContent = 'Remove';
+                remove.addEventListener('click', () => removeTicker(i));
+                actions.append(moveUp, moveDown, remove);
+
+                row.append(details, actions);
+                rows.appendChild(row);
+            });
+            el.textContent = '';
+            el.appendChild(rows);
         }
 
         function setStatus(msg, isError) {
